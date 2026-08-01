@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ClauseGuard — AI-powered contract clause risk analyzer. Dissect contracts, flag risks, extract obligations.">
+    <title>ClauseGuard — Contracts, dissected.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/additional.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script>
+        // Prevent flash of wrong theme — apply before render
+        (function() {
+            var t = localStorage.getItem('cg-theme') || 'light';
+            if (t === 'light') document.documentElement.classList.add('light-preload');
+        })();
+    </script>
+    <style>
+        html.light-preload body { background: #fcf9f2; }
+    </style>
+</head>
+<body>
+
+    <!-- ─── Sidebar ─── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sb-header">
+            <div class="sb-brand">
+                <!-- Shield Logo -->
+                <div class="sb-logo-wrap">
+                    <svg width="30" height="30" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="sg1" x1="20" y1="2" x2="20" y2="38" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="var(--gold-light)"/>
+                                <stop offset="100%" stop-color="var(--gold-dark)"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="40" height="40" rx="14" fill="url(#sg1)"/>
+                        <text x="20" y="29" font-family="sans-serif" font-size="28" font-weight="600" fill="var(--bg)" text-anchor="middle">§</text>
+                        <path d="M33 7v6M30 10h6" stroke="var(--bg)" stroke-width="2"/>
+                        <circle cx="33" cy="10" r="2.5" fill="var(--bg)"/>
+                    </svg>
+                </div>
+                <div class="sb-titles">
+                    <span class="sb-title">ClauseGuard</span>
+                    <span class="sb-tagline">Contracts, dissected</span>
+                </div>
+            </div>
+            <button class="sb-collapse" id="btn-sidebar-collapse" title="Collapse sidebar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+        </div>
+
+        <div class="sb-inner">
+            <!-- New Analysis -->
+            <button class="sb-new-btn" id="btn-new-analysis">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>New Analysis</span>
+            </button>
+
+            <!-- Navigation -->
+            <div class="sb-section-label">Navigation</div>
+            <button class="sb-nav-item" id="btn-open-settings">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.26.6.85 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.66 0-1.25.4-1.51 1z"/></svg>
+                <span>API Settings</span>
+            </button>
+            <button class="sb-nav-item" id="btn-open-dataset">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                <span>Dataset & Tech</span>
+            </button>
+
+            <div class="sb-divider"></div>
+
+            <!-- History -->
+            <div class="sb-section-label">History</div>
+            <div class="sb-history" id="sb-history">
+                <div class="sb-history-empty">No analyses yet</div>
+            </div>
+            
+            <div class="sb-divider"></div>
+            
+            <a href="/logout" class="sb-nav-item" style="color: var(--gold);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                <span>Sign Out</span>
+            </a>
+        </div>
+
+        <!-- Sidebar bottom status -->
+        <div class="sb-bottom">
+            <div class="sb-status" id="sb-llm-status">
+                <span class="status-dot"></span>
+                <span>ML Fallback Active</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ─── Main Content ─── -->
+    <main class="content" id="content">
+
+        <!-- Top bar (theme toggle + mobile menu) -->
+        <div class="top-bar" id="top-bar">
+            <button class="theme-toggle" id="btn-theme-toggle" title="Toggle light/dark mode">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="theme-icon-dark"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="theme-icon-light" class="hidden"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <div class="theme-toggle-track">
+                    <div class="theme-toggle-thumb"></div>
+                </div>
+                <span id="theme-label">Dark</span>
+            </button>
+        </div>
+
+        <!-- Mobile header -->
+        <div class="mobile-header">
+            <button class="icon-btn" id="btn-mobile-menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <span>ClauseGuard</span>
+            <button class="theme-toggle" id="btn-theme-toggle-mobile" style="margin-left:auto;font-size:0.65rem;padding:5px 10px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <div class="theme-toggle-track" style="width:26px;height:14px;"><div class="theme-toggle-thumb" style="width:9px;height:9px;"></div></div>
+            </button>
+        </div>
+
+        <!-- ─── LANDING PANEL ─── -->
+        <div class="panel panel-landing" id="panel-landing">
+            <div class="landing-bg"></div>
+            <div class="landing-wrap">
+                <div class="greeting">
+                    <span class="g-eyebrow">AI-Powered Legal Intelligence</span>
+                    <h1>Contracts,<br><em>dissected.</em></h1>
+                    <p class="g-sub">Upload any contract or legal document. Our AI extracts every clause, flags high-risk language, and generates an actionable risk report — in seconds.</p>
+                </div>
+
+                <div class="user-prompt-area">
+                    <label class="prompt-label" for="user-prompt">Custom instructions</label>
+                    <textarea id="user-prompt" class="prompt-input" rows="2"
+                        placeholder="e.g., Focus on payment terms and GDPR compliance. Flag anything over Net 45."></textarea>
+                </div>
+
+                <div class="upload-bar" id="upload-bar">
+                    <label class="ub-attach" for="file-input" title="Choose files">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    </label>
+                    <input type="file" id="file-input" class="sr-only" accept=".pdf,.docx,.txt" multiple>
+                    <div class="ub-text" id="ub-text">Drop files or click to upload — PDF, DOCX, TXT — max 16 MB each</div>
+                    <div class="ub-file hidden" id="ub-file"></div>
+                    <button class="ub-send" id="btn-analyze" disabled aria-label="Analyze">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── PROCESSING PANEL ─── -->
+        <div class="panel panel-processing hidden" id="panel-processing">
+            <div class="proc-wrap">
+                <div class="proc-spinner"></div>
+                <h2 id="proc-title">Parsing document…</h2>
+                <p class="proc-sub" id="proc-sub">Extracting text content</p>
+                <div class="proc-track"><div class="proc-bar" id="proc-bar"></div></div>
+                <div class="proc-dots">
+                    <span class="pd active" id="pd-1"><span class="pd-dot"></span>Parse</span>
+                    <span class="pd" id="pd-2"><span class="pd-dot"></span>Analyze</span>
+                    <span class="pd" id="pd-3"><span class="pd-dot"></span>Insights</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── RESULTS PANEL ─── -->
+        <div class="panel panel-results hidden" id="panel-results">
+            <div class="res-wrap">
+
+                <!-- Multi-doc tabs (shown only for multiple docs) -->
+                <div class="multi-doc-tabs hidden" id="multi-doc-tabs"></div>
+
+                <!-- File info + actions -->
+                <div class="res-top">
+                    <div>
+                        <div class="res-file-info">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-3);flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <span class="res-doc-title" id="res-filename">document.pdf</span>
+                        </div>
+                        <div class="res-meta" id="res-wordcount">0 words · 0 characters</div>
+                    </div>
+                    <div class="res-actions">
+                        <button class="btn btn-ghost btn-sm" id="btn-download-report">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Export Report
+                        </button>
+                        <button class="btn btn-ghost btn-sm" id="btn-back-home">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                            New Analysis
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Executive Summary -->
+                <div class="exec-summary">
+                    <div class="exec-header">
+                        <span class="exec-icon">📋</span>
+                        <h3>Risk Assessment Summary</h3>
+                    </div>
+                    <div class="exec-detail">
+                        <p id="res-summary-text" class="exec-text">Analyzing document...</p>
+                        <div id="res-summary-breakdown" class="summary-breakdown"></div>
+                    </div>
+                </div>
+
+                <!-- Obligations -->
+                <div class="obligations-summary hidden" id="obligations-summary">
+                    <div class="obligations-inner">
+                        <div class="exec-header">
+                            <span class="exec-icon">📅</span>
+                            <h3>Actionable Deadlines &amp; Obligations</h3>
+                        </div>
+                        <div class="exec-detail">
+                            <ul id="obligations-list" class="obligations-list"></ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats row -->
+                <div class="stats-row">
+                    <div class="stat-box">
+                        <div class="stat-num" id="stat-total">0</div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-box sh">
+                        <span class="sdot sdot-h"></span>
+                        <div class="stat-num sn-h" id="stat-high">0</div>
+                        <div class="stat-label">High Risk</div>
+                    </div>
+                    <div class="stat-box sm">
+                        <span class="sdot sdot-m"></span>
+                        <div class="stat-num sn-m" id="stat-med">0</div>
+                        <div class="stat-label">Medium Risk</div>
+                    </div>
+                    <div class="stat-box sl">
+                        <span class="sdot sdot-l"></span>
+                        <div class="stat-num sn-l" id="stat-low">0</div>
+                        <div class="stat-label">Low Risk</div>
+                    </div>
+                </div>
+
+                <!-- Risk distribution strip -->
+                <div class="risk-strip">
+                    <div class="rs-h" id="rs-h"></div>
+                    <div class="rs-m" id="rs-m"></div>
+                    <div class="rs-l" id="rs-l"></div>
+                </div>
+
+                <!-- Filter bar -->
+                <div class="filter-bar">
+                    <button class="fbtn active" data-filter="all">All Clauses</button>
+                    <button class="fbtn" data-filter="high">High Risk</button>
+                    <button class="fbtn" data-filter="medium">Medium Risk</button>
+                    <button class="fbtn" data-filter="low">Low Risk</button>
+                </div>
+
+                <!-- Clause cards -->
+                <div class="card-list" id="card-list"></div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- ─── Dataset Modal ─── -->
+    <div class="modal-bg hidden" id="dataset-modal">
+        <div class="modal-box">
+            <div class="modal-top">
+                <h3>Dataset &amp; Technology Stack</h3>
+                <button class="close-btn" id="dataset-close">&times;</button>
+            </div>
+            <div class="modal-content">
+                <section class="ms">
+                    <h4>📊 ML Classification Dataset</h4>
+                    <p>Custom-curated contract risk pattern corpus inspired by <a href="https://www.atticusprojectai.org/cuad" target="_blank">CUAD (Contract Understanding Attainment Dataset)</a> — a recognized legal NLP benchmark by The Atticus Project.</p>
+                    <table>
+                        <thead><tr><th>Property</th><th>Value</th></tr></thead>
+                        <tbody>
+                            <tr><td>Dataset</td><td>ClauseGuard Risk Pattern Corpus v2.0</td></tr>
+                            <tr><td>Total Patterns</td><td>86</td></tr>
+                            <tr><td>Categories</td><td>25 (10 High · 10 Medium · 5 Low)</td></tr>
+                            <tr><td>Vectorization</td><td>TF-IDF, (1,3)-gram, sublinear TF</td></tr>
+                            <tr><td>Similarity</td><td>Cosine ≥ 0.3 threshold</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+                <section class="ms">
+                    <h4>🧠 NLP Pipeline</h4>
+                    <table><tbody>
+                        <tr><td>Library</td><td>spaCy v3.x</td></tr>
+                        <tr><td>Model</td><td>en_core_web_sm (multi-task CNN)</td></tr>
+                        <tr><td>Features</td><td>Sentence segmentation · NER · Dependency parsing</td></tr>
+                    </tbody></table>
+                </section>
+                <section class="ms">
+                    <h4>✨ LLM Integration</h4>
+                    <table><tbody>
+                        <tr><td>Provider</td><td>Google Generative AI</td></tr>
+                        <tr><td>Model</td><td>Gemini 1.5 Flash</td></tr>
+                        <tr><td>Fallback</td><td>25 rule-based explanation templates</td></tr>
+                    </tbody></table>
+                </section>
+                <section class="ms">
+                    <h4>📁 All 25 Risk Categories</h4>
+                    <div class="cat-tags">
+                        <span class="ct ct-h">Indemnification</span><span class="ct ct-h">Unlimited Liability</span><span class="ct ct-h">Auto Renewal</span><span class="ct ct-h">Non-Compete</span><span class="ct ct-h">IP Assignment</span><span class="ct ct-h">Unilateral Termination</span><span class="ct ct-h">Rights Waiver</span><span class="ct ct-h">Penalty Clauses</span><span class="ct ct-h">Perpetual Terms</span><span class="ct ct-h">Data Rights</span>
+                        <span class="ct ct-m">Liability Caps</span><span class="ct ct-m">Confidentiality</span><span class="ct ct-m">Jurisdiction</span><span class="ct ct-m">Force Majeure</span><span class="ct ct-m">Warranty</span><span class="ct ct-m">Payment Terms</span><span class="ct ct-m">Scope Changes</span><span class="ct ct-m">Data Usage</span><span class="ct ct-m">Assignment</span><span class="ct ct-m">Notice</span>
+                        <span class="ct ct-l">Mutual Terms</span><span class="ct ct-l">Good Faith</span><span class="ct ct-l">Boilerplate</span><span class="ct ct-l">Written Consent</span><span class="ct ct-l">Reasonable Standards</span>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Settings Modal ─── -->
+    <div class="modal-bg hidden" id="settings-modal">
+        <div class="modal-box modal-narrow">
+            <div class="modal-top">
+                <h3>API Settings</h3>
+                <button class="close-btn" id="settings-close">&times;</button>
+            </div>
+            <div class="modal-content">
+                <label class="field-label">Google Gemini API Key</label>
+                <div class="key-input-row">
+                    <input type="password" id="api-key-input" class="field-input" placeholder="AIzaSy…" autocomplete="off">
+                    <button class="icon-btn" id="btn-toggle-key" title="Show/hide key">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+                <p class="field-hint">Enables AI explanations, Playbook alignment, and Obligation extraction. Get a free key at <a href="https://aistudio.google.com/" target="_blank">Google AI Studio</a>.</p>
+                <button class="btn btn-primary btn-full" id="btn-save-key">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-area" id="toast-area"></div>
+
+    <!-- Clause card template -->
+    <template id="card-tpl">
+        <article class="clause-card">
+            <div class="cc-header">
+                <span class="cc-badge"></span>
+                <span class="cc-section-name"></span>
+                <span class="cc-score-label"></span>
+            </div>
+            <p class="cc-body-text"></p>
+            <div class="cc-categories"></div>
+            <div class="cc-footer">
+                <div class="cc-bar"><div class="cc-bar-fill"></div></div>
+                <button class="btn btn-outline btn-sm cc-explain-btn">Explain in plain English ✨</button>
+            </div>
+            <div class="cc-explanation hidden">
+                <div class="ex-row"><span class="ex-icon">💡</span><div><strong>What it means</strong><p class="ex-p ex-means"></p></div></div>
+                <div class="ex-row"><span class="ex-icon">⚠️</span><div><strong>Why it's risky</strong><p class="ex-p ex-risky"></p></div></div>
+                <div class="ex-row"><span class="ex-icon">✅</span><div><strong>What to do</strong><p class="ex-p ex-action"></p></div></div>
+            </div>
+        </article>
+    </template>
+
+    <!-- ─── Chat Widget ─── -->
+    <button class="chat-fab hidden" id="chat-fab" aria-label="Open document chat">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div class="chat-window hidden" id="chat-window">
+        <div class="chat-header">
+            <div class="chat-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Document Q&amp;A
+            </div>
+            <button class="close-btn" id="chat-close">&times;</button>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="msg msg-ai">Hi! I've read your document. Ask me anything about its clauses, obligations, or risk areas.</div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Ask a question…" autocomplete="off">
+            <button id="chat-send" class="chat-send-btn" aria-label="Send">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
