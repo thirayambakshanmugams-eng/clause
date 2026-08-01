@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClauseGuard — Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+        (function() {
+            var t = localStorage.getItem('cg-theme') || 'light';
+            if (t === 'light') document.documentElement.classList.add('light-preload');
+        })();
+    </script>
+    <style>
+        html.light-preload body { background: #fcf9f2; }
+        .login-page { width: 100%; min-height: 100vh; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+        .login-bg { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+        .login-bg::before { content: ''; position: absolute; top: -20%; left: 50%; transform: translateX(-50%); width: 800px; height: 800px; border-radius: 50%; background: radial-gradient(ellipse, var(--gold-bg) 0%, transparent 70%); opacity: 0.6; }
+        body.light .login-bg::before { opacity: 0.4; }
+        .login-box { position: relative; z-index: 1; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 48px; width: 100%; max-width: 440px; box-shadow: var(--shadow-lg); text-align: center; animation: fadeUp 0.4s ease; }
+        .login-logo { margin-bottom: 24px; display: inline-block; }
+        .login-title { font-family: var(--font-serif); font-size: 2rem; font-weight: 500; color: var(--text-1); margin-bottom: 8px; }
+        .login-sub { font-size: 0.9rem; color: var(--text-3); margin-bottom: 32px; font-family: var(--font-mono); letter-spacing: 0.05em; }
+        .login-form { display: flex; flex-direction: column; gap: 16px; text-align: left; }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-label-row { display: flex; justify-content: space-between; align-items: baseline; }
+        .form-label { font-size: 0.75rem; font-weight: 500; color: var(--text-2); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; }
+        .forgot-link { font-size: 0.75rem; color: var(--gold); text-decoration: none; }
+        .forgot-link:hover { text-decoration: underline; color: var(--gold-light); }
+        .form-input { padding: 12px 16px; border: 1px solid var(--border-mid); border-radius: var(--radius-md); font-family: var(--font-sans); font-size: 0.9rem; background: var(--bg-3); color: var(--text-1); transition: var(--trans); }
+        .form-input:focus { outline: none; border-color: var(--gold-border); box-shadow: 0 0 0 3px var(--gold-bg); }
+        .login-btn { margin-top: 8px; padding: 14px; font-size: 0.85rem; }
+        
+        .divider { display: flex; align-items: center; text-align: center; margin: 20px 0; color: var(--text-4); font-size: 0.75rem; font-family: var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid var(--border); }
+        .divider:not(:empty)::before { margin-right: .5em; }
+        .divider:not(:empty)::after { margin-left: .5em; }
+        
+        .sso-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 12px; background: var(--bg-3); border: 1px solid var(--border-mid); border-radius: var(--radius-md); color: var(--text-1); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: var(--trans); }
+        .sso-btn:hover { background: var(--bg-4); border-color: var(--border-hi); }
+        .sso-icon { width: 18px; height: 18px; }
+        
+        .signup-text { margin-top: 32px; font-size: 0.85rem; color: var(--text-3); }
+        .signup-text a { color: var(--gold); font-weight: 500; }
+        .signup-text a:hover { text-decoration: underline; color: var(--gold-light); }
+    </style>
+</head>
+<body>
+    <div class="login-page">
+        <div class="login-bg"></div>
+        <div class="login-box">
+            <div class="login-logo">
+                <svg width="48" height="48" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="sg1" x1="20" y1="2" x2="20" y2="38" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="var(--gold-light)"/>
+                                <stop offset="100%" stop-color="var(--gold-dark)"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="40" height="40" rx="14" fill="url(#sg1)"/>
+                        <text x="20" y="29" font-family="sans-serif" font-size="28" font-weight="600" fill="var(--bg)" text-anchor="middle">§</text>
+                        <path d="M33 7v6M30 10h6" stroke="var(--bg)" stroke-width="2"/>
+                        <circle cx="33" cy="10" r="2.5" fill="var(--bg)"/>
+                </svg>
+            </div>
+            <h1 class="login-title">ClauseGuard</h1>
+            <p class="login-sub">Contracts, dissected.</p>
+            
+        <form class="login-form" method="POST" action="/login">
+                {% if error %}
+                <div style="background:#fdf0ef;border:1px solid #f5c6c2;border-left:4px solid #c0392b;border-radius:6px;padding:10px 14px;font-size:0.82rem;color:#c0392b;font-weight:500;display:flex;align-items:center;gap:8px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    {{ error }}
+                </div>
+                {% endif %}
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <input type="text" id="username" name="username" class="form-input" required placeholder="Enter your username" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label class="form-label" for="password">Password</label>
+                    </div>
+                    <input type="password" id="password" name="password" class="form-input" required placeholder="••••••••" autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary login-btn">Sign In →</button>
+            </form>
+
+            <p class="signup-text" style="margin-top:24px;">
+                ClauseGuard AI &mdash; Contract Risk Analysis
+            </p>
+        </div>
+    </div>
+    <script>
+        const isLight = localStorage.getItem('cg-theme') !== 'dark';
+        if (isLight) {
+            document.documentElement.classList.remove('light-preload');
+            document.body.classList.add('light');
+        }
+    </script>
+</body>
+</html>

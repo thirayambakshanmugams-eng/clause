@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: clauseguard
+    env: python
+    buildCommand: "pip install -r requirements.txt && python -m spacy download en_core_web_sm"
+    startCommand: "gunicorn 'app:create_app()'"
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
