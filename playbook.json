@@ -1,0 +1,36 @@
+{
+  "playbook": {
+    "name": "Standard Corporate Playbook",
+    "version": "1.0",
+    "rules": [
+      {
+        "id": "PB-001",
+        "category": "Payment Terms",
+        "condition": "Payment terms must be Net 30 or greater.",
+        "flag_if": "Terms are Net 15, Due upon receipt, or less than Net 30.",
+        "alternative_text": "All undisputed invoices shall be paid within thirty (30) days of receipt."
+      },
+      {
+        "id": "PB-002",
+        "category": "Liability Limit",
+        "condition": "Liability must be capped at fees paid in the last 12 months.",
+        "flag_if": "Unlimited liability or cap exceeding 12 months fees.",
+        "alternative_text": "In no event shall either party's aggregate liability exceed the total amounts paid under this Agreement in the twelve (12) months preceding the claim."
+      },
+      {
+        "id": "PB-003",
+        "category": "Governing Law",
+        "condition": "Governing law must be Delaware.",
+        "flag_if": "Any jurisdiction other than Delaware or US Federal Law.",
+        "alternative_text": "This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware."
+      },
+      {
+        "id": "PB-004",
+        "category": "Auto-Renewal",
+        "condition": "No auto-renewal without at least 60 days written notice.",
+        "flag_if": "Auto-renews without notice, or notice period is less than 60 days.",
+        "alternative_text": "This Agreement will not automatically renew. Either party may request renewal by providing written notice at least sixty (60) days prior to the expiration of the current term."
+      }
+    ]
+  }
+}
