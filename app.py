@@ -892,6 +892,59 @@ def create_app():
             'gemini_available': gemini_active,
         })
 
+    @app.route('/api/debug-upload', methods=['POST'])
+    def debug_upload():
+        import time
+        timings = {}
+        t0 = time.time()
+        file = request.files.get('document')
+        if not file:
+            return jsonify({'error': 'no file'}), 400
+
+        filename = secure_filename(file.filename)
+        path = os.path.join(Config.UPLOAD_FOLDER, f"debug_{filename}")
+        file.save(path)
+        timings['save'] = round(time.time() - t0, 3)
+
+        t1 = time.time()
+        parser = get_parser()
+        doc = parser.parse(path)
+        timings['parse'] = round(time.time() - t1, 3)
+        timings['char_count'] = len(doc['text'])
+
+        t2 = time.time()
+        extractor = get_extractor()
+        clauses = extractor.extract(doc['text'])
+        timings['extract'] = round(time.time() - t2, 3)
+        timings['clause_count'] = len(clauses)
+
+        t3 = time.time()
+        analyzer = get_analyzer()
+        for c in clauses:
+            analyzer.analyze(c['text'])
+        timings['risk'] = round(time.time() - t3, 3)
+
+        t4 = time.time()
+        try:
+            playbook = get_playbook_analyzer()
+            playbook.analyze_document(clauses)
+            timings['playbook'] = round(time.time() - t4, 3)
+        except Exception as e:
+            timings['playbook_err'] = str(e)
+
+        t5 = time.time()
+        try:
+            ob_ext = get_obligation_extractor()
+            ob_ext.extract(doc['text'])
+            timings['obligations'] = round(time.time() - t5, 3)
+        except Exception as e:
+            timings['obligations_err'] = str(e)
+
+        if os.path.exists(path):
+            os.remove(path)
+        timings['total'] = round(time.time() - t0, 3)
+        return jsonify({'success': True, 'timings': timings})
+
     @app.route('/api/report', methods=['POST'])
     @login_required
     def generate_report():
