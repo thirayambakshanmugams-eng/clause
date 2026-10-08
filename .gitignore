@@ -58,3 +58,11 @@ flyctl_bin/
 
 # Scripts with credentials / local helpers
 push_to_github.ps1
+
+# Local dev utilities & alternate deployment configs
+serve_landing.js
+real_world_eval.py
+Dockerfile
+fly.toml
+static/images/
+
