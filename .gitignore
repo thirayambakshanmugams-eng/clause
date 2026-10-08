@@ -47,6 +47,7 @@ Thumbs.db
 
 # Temp files
 temp_*.py
+test_*.py
 *.db
 *.sqlite
 *.sqlite3
