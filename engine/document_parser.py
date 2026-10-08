@@ -13,7 +13,16 @@ import tempfile
 import time
 import zipfile
 import shutil
+import concurrent.futures
 from typing import Dict, Callable, Optional
+
+# Max seconds for the entire PDF parse (including OCR fallback).
+# Render's proxy hard-cuts at 60s; keep comfortably under that.
+_PDF_PARSE_TIMEOUT_SECS = 45
+# Max PDF file size (bytes) for cloud deployment — 5 MB
+_PDF_MAX_BYTES = 5 * 1024 * 1024
+# Max pages to extract text from (avoids memory spikes on very large PDFs)
+_PDF_MAX_PAGES = 50
 
 from PyPDF2 import PdfReader
 from docx import Document
@@ -70,7 +79,7 @@ class DocumentParser:
         try:
             reader = PdfReader(file_path)
             pages = []
-            for page in reader.pages:
+            for page in reader.pages[:_PDF_MAX_PAGES]:
                 page_text = page.extract_text()
                 if page_text and page_text.strip():
                     pages.append(page_text.strip())
@@ -85,7 +94,7 @@ class DocumentParser:
             import pdfplumber
             with pdfplumber.open(file_path) as pdf:
                 pages = []
-                for page in pdf.pages:
+                for page in pdf.pages[:_PDF_MAX_PAGES]:
                     page_text = page.extract_text()
                     if page_text and page_text.strip():
                         pages.append(page_text.strip())
@@ -182,38 +191,79 @@ class DocumentParser:
 
     @staticmethod
     def _parse_pdf(file_path: str, api_key: Optional[str] = None) -> str:
-        """Extract text from a PDF file using PyPDF2, with Gemini OCR fallback for scanned PDFs."""
-        extracted = DocumentParser._extract_pdf_text(file_path)
+        """Extract text from a PDF file with a hard timeout to prevent proxy timeouts.
 
-        # If PyPDF2/pdfplumber successfully extracted text, return immediately without heavy OCR
-        if len(extracted.strip()) >= 50:
-            return extracted
+        Uses PyPDF2 first (fast), then Gemini OCR (cloud), then local OCR — all wrapped
+        in a _PDF_PARSE_TIMEOUT_SECS timeout so the server never stalls long enough to
+        trigger Render's 60-second proxy timeout (which returns a 502).
+        """
+        # Reject PDFs that are too large for cloud OCR within time budget
+        try:
+            pdf_size = os.path.getsize(file_path)
+            if pdf_size > _PDF_MAX_BYTES:
+                # Still try fast text extraction — skip OCR entirely for oversized files
+                fast_text = DocumentParser._extract_pdf_text(file_path)
+                if len(fast_text.strip()) >= 50:
+                    return fast_text
+                raise ValueError(
+                    f'PDF is too large ({pdf_size // (1024*1024)} MB) for cloud OCR. '
+                    'Please upload a text-based PDF under 5 MB, or convert to DOCX/TXT.'
+                )
+        except OSError:
+            pass  # If we can't stat the file, proceed anyway
 
-        # For scanned/image-only PDFs (no or very sparse text), attempt OCR
-        ocr_text = ''
-        if api_key or os.environ.get('GEMINI_API_KEY'):
+        def _do_parse() -> str:
+            """Inner function executed with timeout."""
+            extracted = DocumentParser._extract_pdf_text(file_path)
+
+            # Fast path: PyPDF2/pdfplumber found enough text
+            if len(extracted.strip()) >= 50:
+                return extracted
+
+            # Slow path 1: Gemini cloud OCR (for scanned PDFs)
+            ocr_text = ''
+            if api_key or os.environ.get('GEMINI_API_KEY'):
+                try:
+                    ocr_text = DocumentParser._gemini_ocr(file_path, api_key=api_key)
+                except Exception:
+                    ocr_text = ''
+
+            # Slow path 2: Local OCR (tesseract — only on machines where it's installed)
+            if not ocr_text.strip():
+                try:
+                    ocr_text, _ = DocumentParser._local_pdf_ocr(file_path)
+                except Exception:
+                    ocr_text = ''
+
+            if ocr_text.strip():
+                return ocr_text
+
+            # If any sparse text was extracted, use it rather than failing
+            if extracted.strip():
+                return extracted
+
+            raise ValueError(
+                'Could not extract text from the PDF. The document may be scanned or image-only. '
+                'Please provide a text-based PDF or configure a Gemini API key in API Settings for cloud OCR.'
+            )
+
+        # Run with a timeout to avoid hitting Render's 60-second proxy limit
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_parse)
+                return future.result(timeout=_PDF_PARSE_TIMEOUT_SECS)
+        except concurrent.futures.TimeoutError:
+            # Timeout: try the fast text extraction one more time as a last resort
             try:
-                ocr_text = DocumentParser._gemini_ocr(file_path, api_key=api_key)
+                fast_text = DocumentParser._extract_pdf_text(file_path)
+                if fast_text.strip():
+                    return fast_text
             except Exception:
-                ocr_text = ''
-
-        if not ocr_text.strip():
-            try:
-                ocr_text, _ = DocumentParser._local_pdf_ocr(file_path)
-            except Exception:
-                ocr_text = ''
-
-        if ocr_text.strip():
-            return ocr_text
-
-        # If any text was extracted, return it even if sparse
-        if extracted.strip():
-            return extracted
-
-        raise ValueError(
-            'Could not extract text from the PDF. The document may be scanned or image-only. '
-            'Please provide a text-based document or configure a Gemini API key in API Settings for cloud OCR.'
-        )
+                pass
+            raise ValueError(
+                'PDF processing timed out (document is too complex or too large). '
+                'Please try a smaller PDF, or convert the document to DOCX or TXT format.'
+            )
 
     @staticmethod
     def _parse_doc(file_path: str) -> str:
