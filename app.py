@@ -885,7 +885,8 @@ def create_app():
         return jsonify({
             'status':           'healthy',
             'app':              'ClauseGuard',
-            'version':          '2.0.0',
+            'version':          '2.0.1',
+            'commit':           'f146b29',
             'llm_available':    groq_active or gemini_active,
             'groq_available':   groq_active,
             'gemini_available': gemini_active,
