@@ -141,7 +141,7 @@ class ClauseExtractor:
         return re.sub(r':?\s*$', '', first_line).strip()
 
     def _split_sentences(self, text: str) -> List[str]:
-        """Split text into sentences using spaCy or regex fallback.
+        """Split text into sentences using fast regex with legal abbreviation protection.
 
         Args:
             text: Text to split into sentences.
@@ -149,22 +149,7 @@ class ClauseExtractor:
         Returns:
             List of sentence strings.
         """
-        if self.nlp is not None:
-            # Use spaCy sentence boundary detection
-            # Process in chunks if text is very long to avoid memory issues
-            max_chars = 100000
-            if len(text) > max_chars:
-                sentences = []
-                for i in range(0, len(text), max_chars):
-                    chunk = text[i:i + max_chars]
-                    doc = self.nlp(chunk)
-                    sentences.extend([sent.text.strip() for sent in doc.sents if sent.text.strip()])
-                return sentences
-            else:
-                doc = self.nlp(text)
-                return [sent.text.strip() for sent in doc.sents if sent.text.strip()]
-        else:
-            return self._fallback_split_sentences(text)
+        return self._fallback_split_sentences(text)
 
     def _fallback_split_sentences(self, text: str) -> List[str]:
         """Split text into sentences using regex when spaCy is unavailable.
@@ -194,7 +179,7 @@ class ClauseExtractor:
         return sentences
 
     def _extract_entities(self, text: str) -> List[Dict[str, str]]:
-        """Extract named entities from text using spaCy NER.
+        """Extract named entities from text using spaCy NER safely and fast.
 
         Args:
             text: Text to extract entities from.
@@ -206,21 +191,24 @@ class ClauseExtractor:
         if self.nlp is None:
             return []
 
-        doc = self.nlp(text[:100000])  # Limit for performance
-        entities = []
-        seen = set()
+        try:
+            doc = self.nlp(text[:2500])  # Safe bound for speed and memory
+            entities = []
+            seen = set()
 
-        for ent in doc.ents:
-            if ent.label_ in self.ENTITY_LABELS:
-                key = (ent.text.strip(), ent.label_)
-                if key not in seen:
-                    seen.add(key)
-                    entities.append({
-                        'text': ent.text.strip(),
-                        'label': ent.label_,
-                    })
+            for ent in doc.ents:
+                if ent.label_ in self.ENTITY_LABELS:
+                    key = (ent.text.strip(), ent.label_)
+                    if key not in seen:
+                        seen.add(key)
+                        entities.append({
+                            'text': ent.text.strip(),
+                            'label': ent.label_,
+                        })
 
-        return entities
+            return entities
+        except Exception:
+            return []
 
     def _group_into_clauses(self, paragraphs: List[str]) -> List[Dict[str, Any]]:
         """Group paragraphs into logical clauses based on section boundaries.

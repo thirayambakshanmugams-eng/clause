@@ -418,7 +418,7 @@ def create_app():
                     api_key = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
                     try:
                         doc_data = parser.parse(file_path, api_key=api_key)
-                    except ValueError as parse_err:
+                    except Exception as parse_err:
                         all_results.append({'success': False, 'filename': filename, 'error': str(parse_err)})
                         continue
 
@@ -500,13 +500,22 @@ def create_app():
                         )
 
                     # Step 5: Playbook
-                    playbook_violations = playbook_analyzer.analyze_document(analyzed_clauses, user_prompt=user_prompt)
+                    try:
+                        playbook_violations = playbook_analyzer.analyze_document(analyzed_clauses, user_prompt=user_prompt)
+                    except Exception as pb_err:
+                        app.logger.warning(f"Playbook analyzer skipped: {pb_err}")
+                        playbook_violations = {}
+
                     for clause in analyzed_clauses:
                         c_id_str = str(clause['id'])
                         clause['playbook_violations'] = playbook_violations.get(c_id_str, playbook_violations.get(clause['id'], []))
 
                     # Step 6: Obligations
-                    obligations = obligation_extractor.extract(text, user_prompt=user_prompt)
+                    try:
+                        obligations = obligation_extractor.extract(text, user_prompt=user_prompt)
+                    except Exception as ob_err:
+                        app.logger.warning(f"Obligation extractor skipped: {ob_err}")
+                        obligations = []
 
                     # Save for Q&A
                     TEMP_DOCS[unique_name] = text
@@ -580,7 +589,7 @@ def create_app():
             }), 200
         except Exception as upload_error:
             app.logger.exception('Upload document error')
-            return jsonify({'success': False, 'error': 'Analysis service error. Please try again later.'}), 500
+            return jsonify({'success': False, 'error': f'Analysis error: {str(upload_error)}'}), 500
 
 
     @app.route('/api/history', methods=['GET', 'DELETE'])

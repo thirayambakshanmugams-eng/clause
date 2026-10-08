@@ -184,60 +184,36 @@ class DocumentParser:
     def _parse_pdf(file_path: str, api_key: Optional[str] = None) -> str:
         """Extract text from a PDF file using PyPDF2, with Gemini OCR fallback for scanned PDFs."""
         extracted = DocumentParser._extract_pdf_text(file_path)
-        empty_pages = 0
-        total_pages = 0
 
-        try:
-            reader = PdfReader(file_path)
-            total_pages = len(reader.pages)
-            for page in reader.pages:
-                text = page.extract_text()
-                if not text or not text.strip():
-                    empty_pages += 1
-        except Exception:
-            total_pages = 0
+        # If PyPDF2/pdfplumber successfully extracted text, return immediately without heavy OCR
+        if len(extracted.strip()) >= 50:
+            return extracted
 
-        sparse_text = len(extracted.strip()) < 20
-        has_image_pages = total_pages > 0 and empty_pages > 0
-        low_density = total_pages > 0 and len(extracted.strip()) / total_pages < 50
-
-        if sparse_text or has_image_pages or low_density:
-            ocr_text = ''
-            local_available = False
-
-            if api_key or os.environ.get('GEMINI_API_KEY'):
+        # For scanned/image-only PDFs (no or very sparse text), attempt OCR
+        ocr_text = ''
+        if api_key or os.environ.get('GEMINI_API_KEY'):
+            try:
                 ocr_text = DocumentParser._gemini_ocr(file_path, api_key=api_key)
+            except Exception:
+                ocr_text = ''
 
-            if not ocr_text.strip():
-                ocr_text, local_available = DocumentParser._local_pdf_ocr(file_path)
+        if not ocr_text.strip():
+            try:
+                ocr_text, _ = DocumentParser._local_pdf_ocr(file_path)
+            except Exception:
+                ocr_text = ''
 
-            if ocr_text.strip():
-                if extracted.strip() and len(ocr_text.strip()) > len(extracted.strip()):
-                    return ocr_text
-                if extracted.strip() and ocr_text.strip() not in extracted:
-                    return f"{extracted}\n\n{ocr_text}".strip()
-                return ocr_text
+        if ocr_text.strip():
+            return ocr_text
 
-            if not (api_key or os.environ.get('GEMINI_API_KEY')):
-                if not local_available:
-                    raise ValueError(
-                        'Scanned or image-only PDF detected. OCR is required to extract text from this file. '
-                        'Install Tesseract OCR and the python packages pdf2image, pytesseract, and Pillow, or configure a Gemini API key.'
-                    )
-                raise ValueError(
-                    'Scanned or image-only PDF detected. Local OCR was attempted but did not extract any text. '
-                    'Try a different file or configure a Gemini API key for OCR.'
-                )
+        # If any text was extracted, return it even if sparse
+        if extracted.strip():
+            return extracted
 
-            if not local_available:
-                raise ValueError(
-                    'Could not extract text from the PDF. The OCR service did not return any text, and local OCR prerequisites are missing. '
-                    'Install Tesseract OCR and the python packages pdf2image, pytesseract, and Pillow.'
-                )
-
-            raise ValueError('Could not extract text from the PDF. The OCR service did not return any text.')
-
-        return extracted
+        raise ValueError(
+            'Could not extract text from the PDF. The document may be scanned or image-only. '
+            'Please provide a text-based document or configure a Gemini API key in API Settings for cloud OCR.'
+        )
 
     @staticmethod
     def _parse_doc(file_path: str) -> str:
