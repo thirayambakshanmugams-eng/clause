@@ -47,6 +47,15 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             )
         ''')
+        # Seed default admin user if not present
+        cursor.execute("SELECT id FROM users WHERE username = 'admin'")
+        if not cursor.fetchone():
+            from werkzeug.security import generate_password_hash
+            default_pass = os.environ.get('APP_PASSWORD', 'clauseguard2024')
+            cursor.execute(
+                'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+                ('admin', 'admin@clauseguard.io', generate_password_hash(default_pass))
+            )
         
         conn.commit()
 
@@ -113,7 +122,7 @@ def get_user_history(user_id, limit=50):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, filename, timestamp, total_clauses, summary_json, document_info_json
+            SELECT id, filename, timestamp, total_clauses, summary_json, document_info_json, analysis_data_json
             FROM history
             WHERE user_id = ?
             ORDER BY timestamp DESC
@@ -123,15 +132,55 @@ def get_user_history(user_id, limit=50):
         
         results = []
         for r in rows:
+            analysis_data = None
+            try:
+                if 'analysis_data_json' in r.keys() and r['analysis_data_json']:
+                    analysis_data = json.loads(r['analysis_data_json'])
+            except Exception:
+                analysis_data = None
+
             results.append({
                 'id': r['id'],
+                'doc_id': r['id'],
                 'filename': r['filename'],
                 'timestamp': r['timestamp'],
                 'total_clauses': r['total_clauses'],
-                'summary': json.loads(r['summary_json']),
-                'document_info': json.loads(r['document_info_json']),
+                'summary': json.loads(r['summary_json']) if r['summary_json'] else {},
+                'document_info': json.loads(r['document_info_json']) if r['document_info_json'] else {},
+                'analysis_data': analysis_data
             })
         return results
+
+
+def get_user_history_item(user_id, item_id):
+    """Fetch a single history entry for a specific user."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, filename, timestamp, total_clauses, summary_json, document_info_json, analysis_data_json
+            FROM history
+            WHERE user_id = ? AND id = ?
+        ''', (user_id, item_id))
+        r = cursor.fetchone()
+        if r:
+            analysis_data = None
+            try:
+                if 'analysis_data_json' in r.keys() and r['analysis_data_json']:
+                    analysis_data = json.loads(r['analysis_data_json'])
+            except Exception:
+                analysis_data = None
+
+            return {
+                'id': r['id'],
+                'doc_id': r['id'],
+                'filename': r['filename'],
+                'timestamp': r['timestamp'],
+                'total_clauses': r['total_clauses'],
+                'summary': json.loads(r['summary_json']) if r['summary_json'] else {},
+                'document_info': json.loads(r['document_info_json']) if r['document_info_json'] else {},
+                'analysis_data': analysis_data
+            }
+        return None
 
 
 def delete_user_history_item(user_id, item_id):

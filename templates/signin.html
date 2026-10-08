@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sign in to ClauseGuard — AI-powered contract analysis platform.">
+    <title>ClauseGuard — Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400;1,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --cream:      #F8F5EF;
+    --cream-dark: #F0EBE1;
+    --gold:       #B8860B;
+    --gold-rich:  #C9973C;
+    --gold-light: #F5E9CC;
+    --ink:        #1A1208;
+    --ink-mid:    #3D2E18;
+    --ink-muted:  #7A6A52;
+    --ink-faint:  #A89880;
+    --border:     rgba(26,18,8,0.08);
+    --border-mid: rgba(26,18,8,0.15);
+    --red:        #C0392B;
+    --green:      #27AE60;
+    --serif:      'Playfair Display', Georgia, serif;
+    --sans:       'Inter', system-ui, sans-serif;
+    --mono:       'JetBrains Mono', monospace;
+    --trans:      all 0.3s cubic-bezier(0.16,1,0.3,1);
+}
+
+html, body {
+    height: 100%; width: 100%;
+    font-family: var(--sans);
+    overflow: hidden;
+}
+
+/* ── FULL PAGE LAYOUT ── */
+.page {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    position: relative;
+}
+
+/* ── CANVAS BACKGROUND (full page, behind left panel) ── */
+#bg-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* ══════════════════════════════════════════
+   LEFT DARK BRANDING PANEL
+══════════════════════════════════════════ */
+.left-panel {
+    flex: 1;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 52px 60px;
+    background: linear-gradient(150deg, #140F06 0%, #1E1508 40%, #120D05 100%);
+    overflow: hidden;
+}
+
+/* Grid overlay */
+.left-panel::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image:
+        linear-gradient(rgba(184,134,11,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(184,134,11,0.05) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none; z-index: 0;
+}
+
+/* Animated orbs */
+.orb {
+    position: absolute; border-radius: 50%;
+    pointer-events: none; z-index: 0;
+    filter: blur(60px);
+}
+.orb-1 {
+    width: 500px; height: 500px;
+    top: -15%; left: -15%;
+    background: radial-gradient(ellipse, rgba(184,134,11,0.18) 0%, transparent 70%);
+    animation: orb-drift1 8s ease-in-out infinite alternate;
+}
+.orb-2 {
+    width: 380px; height: 380px;
+    bottom: -10%; right: -10%;
+    background: radial-gradient(ellipse, rgba(201,151,60,0.12) 0%, transparent 70%);
+    animation: orb-drift2 10s ease-in-out infinite alternate;
+}
+.orb-3 {
+    width: 260px; height: 260px;
+    top: 45%; left: 35%;
+    background: radial-gradient(ellipse, rgba(184,134,11,0.08) 0%, transparent 70%);
+    animation: orb-drift1 6s 2s ease-in-out infinite alternate;
+}
+@keyframes orb-drift1 {
+    from { transform: translate(0,0) scale(1); }
+    to   { transform: translate(40px, 30px) scale(1.2); }
+}
+@keyframes orb-drift2 {
+    from { transform: translate(0,0) scale(1); }
+    to   { transform: translate(-30px,-40px) scale(1.15); }
+}
+
+/* Content inside left panel */
+.left-content { position: relative; z-index: 1; }
+.left-footer   { position: relative; z-index: 1; }
+
+.brand-logo {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 72px;
+    text-decoration: none;
+}
+.brand-mark {
+    width: 42px; height: 42px; border-radius: 10px;
+    background: linear-gradient(135deg, #E8C97A, var(--gold));
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--serif); font-size: 26px; font-weight: 700; color: #140F06;
+    box-shadow: 0 0 24px rgba(184,134,11,0.55);
+    flex-shrink: 0;
+}
+.brand-name-wrap .brand-name { color: #F8F5EF; font-weight: 700; font-size: 1.1rem; }
+.brand-name-wrap .brand-tag  { font-family: var(--mono); font-size: 0.6rem; color: var(--gold-rich); letter-spacing: 0.12em; text-transform: uppercase; display: block; }
+
+.left-headline {
+    font-family: var(--serif);
+    font-size: clamp(2.2rem, 3vw, 3.2rem);
+    font-weight: 700; color: #F8F5EF;
+    line-height: 1.1; letter-spacing: -0.02em;
+    margin-bottom: 18px;
+}
+.left-headline em { font-style: italic; color: #E8C97A; }
+.left-desc {
+    font-size: 0.95rem; color: #9A8872;
+    line-height: 1.7; max-width: 380px;
+    margin-bottom: 44px;
+}
+
+/* Feature bullets */
+.feat-list { display: flex; flex-direction: column; gap: 14px; }
+.feat-item {
+    display: flex; align-items: center; gap: 14px;
+    font-size: 0.85rem; color: #C0A880;
+}
+.feat-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(184,134,11,0.14); border: 1px solid rgba(184,134,11,0.25);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0;
+}
+
+/* Left footer stats */
+.left-footer {
+    padding-top: 32px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+}
+.stats-row { display: flex; gap: 36px; }
+.stat-item .stat-num   { font-family: var(--serif); font-size: 1.6rem; font-weight: 700; color: var(--gold-rich); line-height: 1; }
+.stat-item .stat-label { font-family: var(--mono); font-size: 0.62rem; color: #5A4A32; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* ══════════════════════════════════════════
+   RIGHT FORM PANEL
+══════════════════════════════════════════ */
+.right-panel {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 72px;
+    background: var(--cream);
+    border-left: 1px solid var(--border-mid);
+    overflow-y: auto;
+    position: relative;
+    z-index: 1;
+}
+
+.form-box { width: 100%; max-width: 420px; }
+
+.form-box-title { font-family: var(--serif); font-size: 1.9rem; font-weight: 700; color: var(--ink); letter-spacing: -0.02em; margin-bottom: 4px; }
+.form-box-sub   { font-size: 0.83rem; color: var(--ink-muted); margin-bottom: 30px; line-height: 1.5; }
+
+/* Tabs */
+.auth-tabs {
+    display: flex;
+    background: var(--cream-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px; gap: 4px;
+    margin-bottom: 28px;
+}
+.auth-tab {
+    flex: 1; padding: 10px;
+    border: none; border-radius: 8px;
+    font-family: var(--mono); font-size: 0.73rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    background: transparent; color: var(--ink-faint);
+    cursor: pointer; transition: var(--trans);
+}
+.auth-tab.active {
+    background: white; color: var(--gold);
+    box-shadow: 0 2px 8px rgba(26,18,8,0.1);
+}
+.auth-tab:hover:not(.active) { color: var(--ink-muted); }
+
+/* Banners */
+.msg-banner {
+    border-radius: 8px; padding: 11px 14px;
+    font-size: 0.8rem; font-weight: 500;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 18px;
+}
+.msg-error   { background: rgba(192,57,43,0.07); border: 1px solid rgba(192,57,43,0.2); border-left: 3px solid var(--red); color: var(--red); }
+.msg-success { background: rgba(39,174,96,0.07); border: 1px solid rgba(39,174,96,0.2); border-left: 3px solid var(--green); color: var(--green); }
+
+/* Form fields */
+.auth-form { display: flex; flex-direction: column; gap: 16px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label {
+    font-family: var(--mono); font-size: 0.68rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-muted);
+}
+.form-input {
+    padding: 13px 14px;
+    border: 1.5px solid var(--border-mid);
+    border-radius: 10px;
+    font-family: var(--sans); font-size: 0.88rem;
+    background: white; color: var(--ink);
+    transition: var(--trans); outline: none;
+}
+.form-input::placeholder { color: var(--ink-faint); }
+.form-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(184,134,11,0.12); }
+
+.btn-submit {
+    padding: 14px; border-radius: 10px;
+    background: var(--ink); color: white;
+    font-family: var(--mono); font-size: 0.82rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border: none; cursor: pointer; transition: var(--trans); margin-top: 4px;
+}
+.btn-submit:hover { background: var(--gold); transform: translateY(-1px); }
+.btn-submit:active { transform: translateY(0); }
+
+/* Bottom secure badges */
+.auth-badges {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+}
+.badge-chip {
+    font-family: var(--mono); font-size: 0.62rem; color: var(--ink-faint);
+    background: var(--cream-dark); padding: 5px 10px;
+    border-radius: 100px; border: 1px solid var(--border); text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.btn-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; color: var(--ink-muted); margin-top: 20px;
+    cursor: pointer; transition: var(--trans); background: none; border: none;
+    font-family: var(--sans); text-decoration: none;
+}
+.btn-back:hover { color: var(--gold); }
+
+/* Responsive */
+@media (max-width: 900px) {
+    .left-panel { display: none; }
+    .right-panel { width: 100%; border-left: none; padding: 40px 28px; }
+    html, body { overflow: auto; }
+}
+    </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="page">
+
+    <!-- ── LEFT DARK PANEL ── -->
+    <div class="left-panel">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+
+        <div class="left-content">
+            <a href="/" class="brand-logo">
+                <div class="brand-mark">§</div>
+                <div class="brand-name-wrap">
+                    <div class="brand-name">ClauseGuard</div>
+                    <span class="brand-tag">AI Contract Intelligence</span>
+                </div>
+            </a>
+
+            <h1 class="left-headline reveal-text delay-1">Every clause.<br><em>Dissected.</em></h1>
+            <p class="left-desc reveal-text delay-2">
+                Upload any contract — PDF, Word or scanned image — and get a complete AI risk analysis in under 30 seconds.
+            </p>
+
+            <div class="feat-list reveal-text delay-3">
+                <div class="feat-item"><div class="feat-icon">🔍</div>15+ risk categories auto-detected</div>
+                <div class="feat-item"><div class="feat-icon">⚡</div>Risk scores 0–100 per clause</div>
+                <div class="feat-item"><div class="feat-icon">💬</div>Plain-English explanations + AI chat</div>
+                <div class="feat-item"><div class="feat-icon">📄</div>PDF, DOCX, images &amp; scanned docs</div>
+                <div class="feat-item"><div class="feat-icon">🔒</div>Private &amp; encrypted — never trains AI</div>
+            </div>
+        </div>
+
+        <div class="left-footer">
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-num">15+</div>
+                    <div class="stat-label">Risk categories</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num">30s</div>
+                    <div class="stat-label">Analysis time</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num">100%</div>
+                    <div class="stat-label">Private</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── RIGHT FORM PANEL ── -->
+    <div class="right-panel">
+        <div class="form-box">
+
+            <h2 class="form-box-title" id="form-title" data-i18n="auth.signin_title">Welcome back</h2>
+            <p class="form-box-sub" id="form-sub" data-i18n="auth.signin_title">Sign in to your ClauseGuard account to continue.</p>
+
+            <!-- Tabs -->
+            <div class="auth-tabs">
+                <button class="auth-tab {{ 'active' if mode != 'register' else '' }}" id="tab-login" onclick="switchTab('login')" data-i18n="auth.tab_signin">Sign In</button>
+                <button class="auth-tab {{ 'active' if mode == 'register' else '' }}" id="tab-register" onclick="switchTab('register')" data-i18n="auth.tab_signup">Create Account</button>
+            </div>
+
+            <!-- Messages -->
+            {% if error %}
+            <div class="msg-banner msg-error">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                {{ error }}
+            </div>
+            {% endif %}
+            {% if success %}
+            <div class="msg-banner msg-success">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                {{ success }}
+            </div>
+            {% endif %}
+
+            <!-- LOGIN FORM -->
+            <form id="form-login" class="auth-form" method="POST" action="/login"
+                  style="{{ 'display:none' if mode == 'register' else '' }}">
+                <div class="form-group">
+                    <label class="form-label" for="username" data-i18n="auth.username_or_email">Username or Email</label>
+                    <input type="text" id="username" name="username" class="form-input"
+                        required placeholder="name@company.com" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="password" data-i18n="auth.password">Password</label>
+                    <input type="password" id="password" name="password" class="form-input"
+                        required placeholder="••••••••" autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn-submit" data-i18n="auth.btn_signin">SIGN IN →</button>
+            </form>
+
+            <!-- REGISTER FORM -->
+            <form id="form-register" class="auth-form" method="POST" action="/register"
+                  style="{{ '' if mode == 'register' else 'display:none' }}">
+                <div class="form-group">
+                    <label class="form-label" for="reg-username" data-i18n="auth.username">Username</label>
+                    <input type="text" id="reg-username" name="username" class="form-input"
+                        required placeholder="e.g. john_doe" minlength="3" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="reg-email" data-i18n="auth.work_email">Email Address</label>
+                    <input type="email" id="reg-email" name="email" class="form-input"
+                        required placeholder="name@company.com" autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="reg-password" data-i18n="auth.password">Password</label>
+                    <input type="password" id="reg-password" name="password" class="form-input"
+                        required placeholder="At least 6 characters" minlength="6" autocomplete="new-password">
+                </div>
+                <button type="submit" class="btn-submit" data-i18n="auth.btn_signup">CREATE ACCOUNT →</button>
+            </form>
+
+            <div class="auth-badges">
+                <span class="badge-chip" data-i18n="signin.encrypted">🔒 Encrypted</span>
+                <span class="badge-chip" data-i18n="signin.secure">🛡 Secure</span>
+                <span class="badge-chip" data-i18n="signin.private">🔑 Private</span>
+            </div>
+
+            <!-- Language Switcher -->
+            <div id="signinLangMount" data-cg-lang-switcher style="margin-top: 20px;"></div>
+
+            <a href="/" class="btn-back">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                <span data-i18n="signin.back_home">Back to homepage</span>
+            </a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+/* ── PARTICLE NETWORK CANVAS ── */
+(function() {
+    const canvas = document.getElementById('bg-canvas');
+    if (!canvas || typeof THREE === 'undefined') return;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 7.5);
+
+    const renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        alpha: true,
+        antialias: true
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0xfff8ee, 0.8);
+    scene.add(ambientLight);
+
+    const goldLight = new THREE.PointLight(0xd4af37, 3.5, 30);
+    goldLight.position.set(-2, 2, 4);
+    scene.add(goldLight);
+
+    const warmLight = new THREE.PointLight(0xb8860b, 2.0, 30);
+    warmLight.position.set(4, -2, 3);
+    scene.add(warmLight);
+
+    // 3D Sentinel Shield Group (docked in the left branding panel)
+    const shieldGroup = new THREE.Group();
+    // Position roughly where the left panel is
+    shieldGroup.position.set(-2.4, 0.4, 0);
+    scene.add(shieldGroup);
+
+    // 3D Metallic Shield Core
+    const shieldGeo = new THREE.ConeGeometry(1.4, 2.2, 6);
+    const shieldMat = new THREE.MeshPhysicalMaterial({
+        color: 0x2a1e0c,
+        emissive: 0x1a1208,
+        roughness: 0.15,
+        metalness: 0.9,
+        clearcoat: 1.0,
+        wireframe: false
+    });
+    const shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
+    shieldMesh.rotation.x = Math.PI;
+    shieldGroup.add(shieldMesh);
+
+    // Embossed Gold Section Seal §
+    const sealGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 32);
+    const sealMat = new THREE.MeshPhysicalMaterial({
+        color: 0xd4af37,
+        metalness: 0.95,
+        roughness: 0.15,
+        clearcoat: 1.0
+    });
+    const sealMesh = new THREE.Mesh(sealGeo, sealMat);
+    sealMesh.rotation.x = Math.PI / 2;
+    sealMesh.position.set(0, -0.3, 0.45);
+    shieldGroup.add(sealMesh);
+
+    // Concentric Orbiting Gold Defense Rings
+    const ringGeo = new THREE.TorusGeometry(1.85, 0.02, 16, 80);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xd4af37, wireframe: true, transparent: true, opacity: 0.55 });
+    const ring1 = new THREE.Mesh(ringGeo, ringMat);
+    const ring2 = new THREE.Mesh(ringGeo, ringMat);
+    ring2.rotation.x = Math.PI / 2.2;
+    shieldGroup.add(ring1);
+    shieldGroup.add(ring2);
+
+    // Full-screen ambient golden particles
+    const particleCount = 150;
+    const particleGeo = new THREE.BufferGeometry();
+    const pos = new Float32Array(particleCount * 3);
+    for(let i=0; i<particleCount * 3; i+=3) {
+        pos[i] = (Math.random() - 0.5) * 16;
+        pos[i+1] = (Math.random() - 0.5) * 10;
+        pos[i+2] = (Math.random() - 0.5) * 8;
+    }
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const particleMat = new THREE.PointsMaterial({
+        size: 0.035,
+        color: 0xd4af37,
+        transparent: true,
+        opacity: 0.5
+    });
+    const particles = new THREE.Points(particleGeo, particleMat);
+    scene.add(particles);
+
+    // Mouse tracking
+    let mouseX = 0, mouseY = 0;
+    document.addEventListener('mousemove', (e) => {
+        mouseX = (e.clientX / window.innerWidth - 0.5) * 0.6;
+        mouseY = (e.clientY / window.innerHeight - 0.5) * 0.6;
+    });
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        // Adjust shield X offset for responsive screen size
+        shieldGroup.position.x = window.innerWidth < 1024 ? 0 : -2.4;
+    });
+    if (window.innerWidth < 1024) shieldGroup.position.x = 0;
+
+    // Animation Loop
+    const clock = new THREE.Clock();
+    function animate() {
+        requestAnimationFrame(animate);
+        const t = clock.getElapsedTime();
+
+        shieldGroup.rotation.y = t * 0.4 + mouseX * 0.8;
+        shieldGroup.rotation.x = Math.sin(t * 1.2) * 0.1 - mouseY * 0.4;
+        ring1.rotation.z += 0.012;
+        ring2.rotation.y += 0.018;
+
+        particles.rotation.y = t * 0.02;
+        particles.rotation.x = t * 0.01;
+
+        renderer.render(scene, camera);
+    }
+    animate();
+})();
+
+/* ── TAB SWITCHING ── */
+function switchTab(mode) {
+    const fL    = document.getElementById('form-login');
+    const fR    = document.getElementById('form-register');
+    const tL    = document.getElementById('tab-login');
+    const tR    = document.getElementById('tab-register');
+    const title = document.getElementById('form-title');
+    const sub   = document.getElementById('form-sub');
+
+    if (mode === 'register') {
+        fL.style.display = 'none'; fR.style.display = 'flex';
+        tL.classList.remove('active'); tR.classList.add('active');
+        if (title) {
+            title.setAttribute('data-i18n', 'auth.signup_title');
+            title.textContent = window.CG_i18n ? window.CG_i18n.t('auth.signup_title') : 'Create your account';
+        }
+        if (sub) {
+            sub.setAttribute('data-i18n', 'auth.signup_sub');
+            sub.textContent   = window.CG_i18n ? window.CG_i18n.t('auth.signup_sub') : 'Free to start. Analyse your first contract today.';
+        }
+    } else {
+        fL.style.display = 'flex'; fR.style.display = 'none';
+        tL.classList.add('active'); tR.classList.remove('active');
+        if (title) {
+            title.setAttribute('data-i18n', 'auth.welcome_back');
+            title.textContent = window.CG_i18n ? window.CG_i18n.t('auth.welcome_back') : 'Welcome back';
+        }
+        if (sub) {
+            sub.setAttribute('data-i18n', 'auth.signin_title');
+            sub.textContent   = window.CG_i18n ? window.CG_i18n.t('auth.signin_title') : 'Sign in to your ClauseGuard account to continue.';
+        }
+    }
+}
+
+/* Set initial title text based on server mode */
+{% if mode == 'register' %}
+if (document.getElementById('form-title')) {
+    document.getElementById('form-title').setAttribute('data-i18n', 'auth.signup_title');
+    document.getElementById('form-title').textContent = window.CG_i18n ? window.CG_i18n.t('auth.signup_title') : 'Create your account';
+}
+if (document.getElementById('form-sub')) {
+    document.getElementById('form-sub').setAttribute('data-i18n', 'auth.signup_sub');
+    document.getElementById('form-sub').textContent   = window.CG_i18n ? window.CG_i18n.t('auth.signup_sub') : 'Free to start. Analyse your first contract today.';
+}
+{% endif %}
+</script>
+
+<link rel="stylesheet" href="/static/css/awwwards.css">
+<script src="/static/js/awwwards-transition.js"></script>
+<script src="/static/js/i18n.js"></script>
+</body>
+</html>

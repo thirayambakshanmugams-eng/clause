@@ -1,0 +1,212 @@
+/* ═══════════════════════════════════════════════════════════
+   CLAUSEGUARD — AWWWARDS-GRADE CINEMATIC TRANSITIONS & 3D DEPTH
+   Inspired by United Carriers (Bearplus) · Awwwards SOTD
+═══════════════════════════════════════════════════════════ */
+
+/* ── 1. CINEMATIC PAGE TRANSITION CURTAIN ── */
+.cg-transition-curtain {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    visibility: hidden;
+}
+
+.cg-curtain-layer {
+    position: absolute;
+    inset: 0;
+    transform: translateY(100%);
+    transition: transform 0.65s cubic-bezier(0.85, 0, 0.15, 1);
+}
+
+.cg-curtain-primary {
+    background: #140F08;
+    z-index: 1;
+}
+
+.cg-curtain-accent {
+    background: #C9973C;
+    z-index: 0;
+    transition-delay: 0.06s;
+}
+
+.cg-transition-curtain.is-transitioning {
+    visibility: visible;
+    pointer-events: all;
+}
+
+.cg-transition-curtain.is-transitioning .cg-curtain-layer {
+    transform: translateY(0%);
+}
+
+.cg-transition-curtain.is-leaving .cg-curtain-layer {
+    transform: translateY(-100%);
+}
+
+/* Central transition loader branding */
+.cg-curtain-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: 0.18s;
+}
+
+.cg-transition-curtain.is-transitioning .cg-curtain-content {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.cg-curtain-logo {
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, #D4AF37 0%, #B8860B 100%);
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 38px;
+    font-weight: 700;
+    color: #140F08;
+    box-shadow: 0 0 35px rgba(212, 175, 55, 0.45);
+    animation: cg-logo-pulse 2s infinite alternate;
+}
+
+@keyframes cg-logo-pulse {
+    from { transform: scale(0.96); box-shadow: 0 0 25px rgba(212, 175, 55, 0.3); }
+    to   { transform: scale(1.04); box-shadow: 0 0 45px rgba(212, 175, 55, 0.65); }
+}
+
+.cg-curtain-text {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #F8F5EF;
+    letter-spacing: -0.01em;
+}
+
+.cg-curtain-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #D4AF37;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+}
+
+.cg-curtain-bar {
+    width: 140px;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+    margin-top: 4px;
+}
+
+.cg-curtain-bar-fill {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 0%;
+    background: #D4AF37;
+    animation: cg-bar-fill 0.65s cubic-bezier(0.85, 0, 0.15, 1) forwards;
+}
+
+@keyframes cg-bar-fill {
+    0% { width: 0%; }
+    100% { width: 100%; }
+}
+
+/* ── 2. UNITED CARRIERS STAGGERED REVEAL ANIMATIONS ── */
+.reveal-text {
+    opacity: 0;
+    transform: translateY(32px);
+    transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal-text.is-revealed {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Delay modifiers */
+.delay-1 { transition-delay: 0.1s; }
+.delay-2 { transition-delay: 0.2s; }
+.delay-3 { transition-delay: 0.3s; }
+.delay-4 { transition-delay: 0.4s; }
+
+/* ── 3. FULL-BLEED 3D STAGE (UNBOXED) ── */
+.unboxed-3d-stage {
+    position: relative;
+    width: 100%;
+    min-height: 560px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1200px;
+}
+
+#unboxed-canvas {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+    z-index: 1;
+}
+
+#unboxed-canvas:active { cursor: grabbing; }
+
+/* Glass Telemetry Pill (Minimalist, spacious) */
+.stage-minimal-hud {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(20, 15, 8, 0.82);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(184, 134, 11, 0.28);
+    border-radius: 100px;
+    padding: 8px 22px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+    pointer-events: none;
+}
+
+.smh-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #D4AF37;
+    box-shadow: 0 0 10px #D4AF37;
+    animation: pulse-dot 1.8s infinite;
+}
+
+.smh-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: #F8F5EF;
+    text-transform: uppercase;
+}
+
+.smh-sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.7rem;
+    color: #9A8872;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    padding-left: 10px;
+}

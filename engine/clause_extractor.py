@@ -38,6 +38,10 @@ class ClauseExtractor:
         r'^\s*\d+\)\s+',                                     # 1) 2)
         r'^\s*[a-z]\)\s+',                                   # a) b)
         r'^\s*(?:schedule|exhibit|appendix|annex)\s+',        # Schedule A, Exhibit 1
+        # Indic Vernacular section headers (Hindi, Tamil, Telugu):
+        r'^\s*(?:धारा|अनुभाग|खंड|भाग)\s*[\d\u0966-\u096F]+',           # Hindi
+        r'^\s*(?:பிரிவு|பகுதி|விதி|உட்பிரிவு)\s*[\d\u0BE6-\u0BEF]+',   # Tamil
+        r'^\s*(?:విభాగం|సెక్షన్|నిబంధన|అధికరణం)\s*[\d\u0C66-\u0C6F]+', # Telugu
     ]
 
     MIN_CLAUSE_WORDS: int = 10
@@ -181,8 +185,8 @@ class ClauseExtractor:
         for abbr in abbreviations:
             protected = protected.replace(abbr + '.', abbr + '\x00')
 
-        # 2. Split on sentence-ending punctuation followed by whitespace and uppercase letter
-        pattern = r'(?<=[.!?])\s+(?=[A-Z])'
+        # 2. Split on sentence-ending punctuation (.!? or danda । or double danda ॥) followed by whitespace
+        pattern = r'(?<=[.!?।॥])\s+'
         parts = re.split(pattern, protected)
 
         # 3. Restore protected abbreviation periods

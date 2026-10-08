@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Flask
+instance/
+.webassets-cache
+
+# Uploads and User data
+uploads/
+*.pdf
+*.docx
+test_contract.txt
+!requirements.txt
+!runtime.txt
+
+# Environment variables
+.env
+.env.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp files
+temp_*.py
+*.db
+*.sqlite
+*.sqlite3
+
+# Binaries, archives & media
+flyctl_bin/
+*.zip
+*.mp4
+
+# Scripts with credentials / local helpers
+push_to_github.ps1

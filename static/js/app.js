@@ -184,6 +184,20 @@ class ClauseGuard {
         this.chatInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this.sendChatMessage();
         });
+
+        // Multilingual Language Change Listener
+        document.addEventListener('cg:langchange', () => {
+            if (window.CG_i18n) window.CG_i18n.applyAll();
+            if (this.results) this.renderResults(this.results);
+            this.renderHistorySidebar();
+            const isLight = document.body.classList.contains('light');
+            const label = document.getElementById('theme-label');
+            if (label) {
+                label.textContent = isLight 
+                    ? (window.CG_i18n ? window.CG_i18n.t('nav.theme_light') || 'Light' : 'Light')
+                    : (window.CG_i18n ? window.CG_i18n.t('nav.theme_dark') || 'Dark' : 'Dark');
+            }
+        });
     }
 
     initDragDrop() {
@@ -212,13 +226,14 @@ class ClauseGuard {
 
     processFileSelection(files) {
         // For now, take the first valid file or multiple if needed
+        const validExts = ['.pdf', '.docx', '.doc', '.txt', '.rtf', '.md', '.odt', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif', '.csv'];
         const validFiles = files.filter(file => {
             const ext = '.' + file.name.split('.').pop().toLowerCase();
-            return ['.pdf', '.docx', '.txt'].includes(ext) && file.size <= 16 * 1024 * 1024;
+            return validExts.includes(ext) && file.size <= 16 * 1024 * 1024;
         });
 
         if (validFiles.length === 0) {
-            return this.toast('Invalid format or size. Use PDF, DOCX, TXT under 16MB.', 'error');
+            return this.toast('Invalid format or size. Supported: PDF, Word, Images, TXT, RTF under 16MB.', 'error');
         }
 
         this.selectedFiles = validFiles;
@@ -356,8 +371,10 @@ class ClauseGuard {
                 const totalLow     = allDocs.reduce((s,d) => s + (d.summary?.low_risk||0), 0);
 
                 // Header: show count of docs
-                this.resFilename.textContent = `${allDocs.length} Documents Analyzed`;
-                this.resWordcount.textContent = `${totalClauses} total clauses across all documents`;
+                const docsWord = window.CG_i18n ? (window.CG_i18n.t('res.docs_analyzed') || 'Documents Analyzed') : 'Documents Analyzed';
+                const clausesWord = window.CG_i18n ? (window.CG_i18n.t('res.total_clauses_across') || 'total clauses across all documents') : 'total clauses across all documents';
+                this.resFilename.textContent = `${allDocs.length} ${docsWord}`;
+                this.resWordcount.textContent = `${totalClauses} ${clausesWord}`;
 
                 // Overall summary box
                 const execBox = this.resSummaryText.parentElement;
@@ -380,10 +397,10 @@ class ClauseGuard {
                 const breakdownDiv = document.getElementById('res-summary-breakdown');
                 if (breakdownDiv) {
                     breakdownDiv.innerHTML = `
-                        <div class="breakdown-item"><strong>Total Clauses</strong><span>${totalClauses}</span></div>
-                        <div class="breakdown-item"><strong>High Risk</strong><span style="color:var(--high);">${totalHigh}</span></div>
-                        <div class="breakdown-item"><strong>Medium Risk</strong><span style="color:var(--med);">${totalMed}</span></div>
-                        <div class="breakdown-item"><strong>Low Risk</strong><span style="color:var(--low);">${totalLow}</span></div>
+                        <div class="breakdown-item"><strong data-i18n="doc.total_clauses">Total Clauses</strong><span>${totalClauses}</span></div>
+                        <div class="breakdown-item"><strong data-i18n="doc.high_risk">High Risk</strong><span style="color:var(--high);">${totalHigh}</span></div>
+                        <div class="breakdown-item"><strong data-i18n="doc.med_risk">Medium Risk</strong><span style="color:var(--med);">${totalMed}</span></div>
+                        <div class="breakdown-item"><strong data-i18n="doc.low_risk">Low Risk</strong><span style="color:var(--low);">${totalLow}</span></div>
                     `;
                 }
 
@@ -396,6 +413,11 @@ class ClauseGuard {
                 this.rsH.style.width = `${(totalHigh / tot) * 100}%`;
                 this.rsM.style.width = `${(totalMed  / tot) * 100}%`;
                 this.rsL.style.width = `${(totalLow  / tot) * 100}%`;
+
+                if (window.update3DRiskGyro) {
+                    const rScore = totalHigh > 0 ? Math.min(72 + totalHigh * 5, 98) : (totalMed > 0 ? 54 : 22);
+                    window.update3DRiskGyro(rScore);
+                }
 
                 // Obligations: combine all docs
                 const obContainer = document.getElementById('obligations-summary');
@@ -438,8 +460,10 @@ class ClauseGuard {
 
             } else {
                 // ── SINGLE DOC (original behaviour) ────────────────────
+                const wordsWord = window.CG_i18n ? (window.CG_i18n.t('res.words') || 'words') : 'words';
+                const charsWord = window.CG_i18n ? (window.CG_i18n.t('res.chars') || 'characters') : 'characters';
                 this.resFilename.textContent = data.filename;
-                this.resWordcount.textContent = `${data.document_info.word_count.toLocaleString()} words · ${data.document_info.char_count.toLocaleString()} characters`;
+                this.resWordcount.textContent = `${data.document_info.word_count.toLocaleString()} ${wordsWord} · ${data.document_info.char_count.toLocaleString()} ${charsWord}`;
 
                 if (data.document_summary_text) {
                     this.resSummaryText.innerHTML = data.document_summary_text;
@@ -447,10 +471,10 @@ class ClauseGuard {
                     const breakdownDiv = document.getElementById('res-summary-breakdown');
                     if (breakdownDiv) {
                         breakdownDiv.innerHTML = `
-                            <div class="breakdown-item"><strong>Total Clauses</strong><span>${data.total_clauses}</span></div>
-                            <div class="breakdown-item"><strong>High Risk</strong><span style="color:var(--high);">${data.summary.high_risk}</span></div>
-                            <div class="breakdown-item"><strong>Medium Risk</strong><span style="color:var(--med);">${data.summary.medium_risk}</span></div>
-                            <div class="breakdown-item"><strong>Low Risk</strong><span style="color:var(--low);">${data.summary.low_risk}</span></div>
+                            <div class="breakdown-item"><strong data-i18n="doc.total_clauses">Total Clauses</strong><span>${data.total_clauses}</span></div>
+                            <div class="breakdown-item"><strong data-i18n="doc.high_risk">High Risk</strong><span style="color:var(--high);">${data.summary.high_risk}</span></div>
+                            <div class="breakdown-item"><strong data-i18n="doc.med_risk">Medium Risk</strong><span style="color:var(--med);">${data.summary.medium_risk}</span></div>
+                            <div class="breakdown-item"><strong data-i18n="doc.low_risk">Low Risk</strong><span style="color:var(--low);">${data.summary.low_risk}</span></div>
                         `;
                     }
                 } else {
@@ -483,6 +507,13 @@ class ClauseGuard {
                 this.rsM.style.width = `${(data.summary.medium_risk / tot) * 100}%`;
                 this.rsL.style.width = `${(data.summary.low_risk  / tot) * 100}%`;
 
+                if (window.update3DRiskGyro) {
+                    const hr = data.summary ? (data.summary.high_risk || 0) : 0;
+                    const mr = data.summary ? (data.summary.medium_risk || 0) : 0;
+                    const rScore = hr > 0 ? Math.min(74 + hr * 6, 98) : (mr > 0 ? 52 : 18);
+                    window.update3DRiskGyro(rScore);
+                }
+
                 this.cardList.innerHTML = '';
                 data.clauses.forEach((c, i) => {
                     const el = this.buildCard(c);
@@ -500,6 +531,11 @@ class ClauseGuard {
                 btn.addEventListener('click', (e) => this.explainClause(e.currentTarget));
             });
 
+            // Re-apply localization to newly generated cards, summaries & obligations
+            if (window.CG_i18n) {
+                window.CG_i18n.applyAll(this.panelResults);
+            }
+
         }, 500);
     }
 
@@ -511,9 +547,16 @@ class ClauseGuard {
         card.dataset.risk = clause.risk_level;
         card.classList.add(`risk-${clause.risk_level}`);
         
-        card.querySelector('.cc-badge').textContent = `${clause.risk_level} risk`;
-        card.querySelector('.cc-section-name').textContent = clause.section_header || `Clause ${clause.id + 1}`;
-        card.querySelector('.cc-score-label').textContent = `Score: ${clause.risk_score}/100`;
+        const riskLvl = clause.risk_level || 'low';
+        const riskKey = riskLvl === 'high' ? 'doc.high_risk' : (riskLvl === 'medium' ? 'doc.med_risk' : 'doc.low_risk');
+        const badgeLabel = window.CG_i18n ? (window.CG_i18n.t(riskKey) || `${riskLvl} risk`) : `${riskLvl} risk`;
+        card.querySelector('.cc-badge').textContent = badgeLabel;
+
+        const clausePrefix = window.CG_i18n ? (window.CG_i18n.t('res.clause') || 'Clause') : 'Clause';
+        card.querySelector('.cc-section-name').textContent = clause.section_header || `${clausePrefix} ${clause.id + 1}`;
+
+        const scorePrefix = window.CG_i18n ? (window.CG_i18n.t('hero.risk_score') || 'Score') : 'Score';
+        card.querySelector('.cc-score-label').textContent = `${scorePrefix}: ${clause.risk_score}/100`;
         
         let txt = clause.text;
         if (clause.keywords) {
@@ -529,7 +572,7 @@ class ClauseGuard {
         (clause.risk_categories || []).forEach(cat => {
             const sp = document.createElement('span');
             sp.className = 'cc-cat';
-            sp.textContent = cat;
+            sp.textContent = window.CG_i18n ? (window.CG_i18n.t(cat) || cat) : cat;
             catBox.appendChild(sp);
         });
         
@@ -548,7 +591,11 @@ class ClauseGuard {
         }
         
         card.querySelector('.cc-bar-fill').style.width = `${clause.risk_score}%`;
-        card.querySelector('.cc-explain-btn').dataset.id = clause.id;
+        const expBtn = card.querySelector('.cc-explain-btn');
+        if (expBtn) {
+            expBtn.dataset.id = clause.id;
+            if (window.CG_i18n) expBtn.textContent = window.CG_i18n.t('dash.explain_btn') || 'Explain in plain English ✨';
+        }
         
         return card;
     }
@@ -563,7 +610,9 @@ class ClauseGuard {
         
         if (!expBox.classList.contains('hidden') && expBox.dataset.loaded) {
             expBox.classList.toggle('hidden');
-            btn.textContent = expBox.classList.contains('hidden') ? 'Explain in plain English ✨' : 'Hide Explanation';
+            const showText = window.CG_i18n ? (window.CG_i18n.t('dash.explain_btn') || 'Explain in plain English ✨') : 'Explain in plain English ✨';
+            const hideText = window.CG_i18n ? (window.CG_i18n.t('dash.hide_explain') || 'Hide Explanation') : 'Hide Explanation';
+            btn.textContent = expBox.classList.contains('hidden') ? showText : hideText;
             return;
         }
         
@@ -571,13 +620,15 @@ class ClauseGuard {
         btn.disabled = true;
         
         try {
+            const currentLang = window.CG_i18n ? window.CG_i18n.getLang() : 'en';
             const res = await fetch(API.explain, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     clause_text: clause.text,
                     risk_level: clause.risk_level,
-                    risk_categories: clause.risk_categories
+                    risk_categories: clause.risk_categories,
+                    lang: currentLang
                 })
             });
             const data = await res.json();
@@ -585,12 +636,20 @@ class ClauseGuard {
             if (data.success !== false) {
                 expBox.classList.remove('hidden');
                 expBox.dataset.loaded = 'true';
-                btn.textContent = 'Hide Explanation';
+                btn.textContent = window.CG_i18n ? window.CG_i18n.t('res.hide_explain') : 'Hide Explanation';
                 btn.disabled = false;
                 
+                const sourceLabel = expBox.querySelector('.ex-source');
+                if (sourceLabel) {
+                    sourceLabel.textContent = data.source === 'llm'
+                        ? 'Source: Gemini LLM'
+                        : 'Source: Rule-based fallback';
+                    sourceLabel.classList.toggle('fallback', data.source !== 'llm');
+                }
+
                 this.typeWrite(expBox.querySelector('.ex-means'), data.what_it_means);
-                setTimeout(() => this.typeWrite(expBox.querySelector('.ex-risky'), data.why_risky), 700);
-                setTimeout(() => this.typeWrite(expBox.querySelector('.ex-action'), data.what_to_do), 1400);
+                this.typeWrite(expBox.querySelector('.ex-risky'), data.why_risky);
+                this.typeWrite(expBox.querySelector('.ex-action'), data.what_to_do);
             } else {
                 this.toast(data.error || 'Failed to explain.', 'error');
                 btn.textContent = 'Explain in plain English ✨';
@@ -970,22 +1029,56 @@ class ClauseGuard {
         m.classList.add('hidden');
     }
 
+    requestDeleteConfirm() {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('delete-confirm-modal');
+            const btnCancel = document.getElementById('btn-cancel-delete');
+            const btnConfirm = document.getElementById('btn-confirm-delete');
+
+            if (!modal) {
+                resolve(window.confirm('Delete this chat history item? This action cannot be undone.'));
+                return;
+            }
+
+            modal.classList.remove('hidden');
+
+            const cleanup = (result) => {
+                modal.classList.add('hidden');
+                btnCancel.removeEventListener('click', onCancel);
+                btnConfirm.removeEventListener('click', onConfirm);
+                modal.removeEventListener('click', onBg);
+                resolve(result);
+            };
+
+            const onCancel = () => cleanup(false);
+            const onConfirm = () => cleanup(true);
+            const onBg = (e) => { if (e.target === modal) cleanup(false); };
+
+            btnCancel.addEventListener('click', onCancel);
+            btnConfirm.addEventListener('click', onConfirm);
+            modal.addEventListener('click', onBg);
+        });
+    }
+
     async saveSettings() {
-        const key = this.apiKeyInput.value.trim();
+        const geminiKey = this.apiKeyInput ? this.apiKeyInput.value.trim() : '';
+        const groqInput  = document.getElementById('groq-key-input');
+        const groqKey    = groqInput ? groqInput.value.trim() : '';
+
         this.btnSaveKey.disabled = true;
         this.btnSaveKey.textContent = 'Saving...';
-        
+
         try {
             const res = await fetch(API.settings, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: key })
+                body: JSON.stringify({ api_key: geminiKey, groq_api_key: groqKey })
             });
             const data = await res.json();
-            
+
             if (data.success) {
                 this.toast('Settings saved', 'success');
-                this.updateLLMStatus(data.llm_available);
+                this.updateLLMStatus(data.llm_available, data.groq_available, data.gemini_available);
                 setTimeout(() => this.closeModal(this.settingsModal), 300);
             } else {
                 this.toast(data.error || 'Failed to save', 'error');
@@ -1006,13 +1099,20 @@ class ClauseGuard {
         } catch (e) {}
     }
 
-    updateLLMStatus(available) {
-        if (available) {
+    updateLLMStatus(available, groqAvailable, geminiAvailable) {
+        const label = this.llmStatus.querySelector('span:last-child');
+        if (groqAvailable && geminiAvailable) {
             this.llmStatus.classList.add('connected');
-            this.llmStatus.querySelector('span:last-child').textContent = 'Gemini LLM Active';
+            label.textContent = 'Groq + Gemini Active';
+        } else if (groqAvailable) {
+            this.llmStatus.classList.add('connected');
+            label.textContent = 'Groq AI Active (Llama 3.3)';
+        } else if (geminiAvailable) {
+            this.llmStatus.classList.add('connected');
+            label.textContent = 'Gemini AI Active';
         } else {
             this.llmStatus.classList.remove('connected');
-            this.llmStatus.querySelector('span:last-child').textContent = 'ML Fallback Active';
+            label.textContent = 'ML Fallback Active';
         }
     }
 
@@ -1039,19 +1139,10 @@ class ClauseGuard {
     }
 
     typeWrite(el, text, speed = 15) {
-        el.textContent = '';
-        el.classList.add('typing');
-        let i = 0;
-        const txt = text || '';
-        const tick = () => {
-            if (i < txt.length) {
-                el.textContent += txt.charAt(i++);
-                setTimeout(tick, speed);
-            } else {
-                el.classList.remove('typing');
-            }
-        };
-        tick();
+        if (!el) return;
+        if (el._typeTimer) clearTimeout(el._typeTimer);
+        el.textContent = text || '';
+        el.classList.remove('typing');
     }
 
     initTheme() {
@@ -1065,12 +1156,12 @@ class ClauseGuard {
             document.body.classList.add('light');
             if(iconDark) iconDark.classList.add('hidden');
             if(iconLight) iconLight.classList.remove('hidden');
-            if(label) label.textContent = 'Light';
+            if(label) label.textContent = window.CG_i18n ? (window.CG_i18n.t('nav.theme_light') || 'Light') : 'Light';
         } else {
             document.documentElement.classList.remove('light-preload');
             if(iconDark) iconDark.classList.remove('hidden');
             if(iconLight) iconLight.classList.add('hidden');
-            if(label) label.textContent = 'Dark';
+            if(label) label.textContent = window.CG_i18n ? (window.CG_i18n.t('nav.theme_dark') || 'Dark') : 'Dark';
         }
     }
     
@@ -1086,11 +1177,11 @@ class ClauseGuard {
         if (isLight) {
             if(iconDark) iconDark.classList.add('hidden');
             if(iconLight) iconLight.classList.remove('hidden');
-            if(label) label.textContent = 'Light';
+            if(label) label.textContent = window.CG_i18n ? (window.CG_i18n.t('nav.theme_light') || 'Light') : 'Light';
         } else {
             if(iconDark) iconDark.classList.remove('hidden');
             if(iconLight) iconLight.classList.add('hidden');
-            if(label) label.textContent = 'Dark';
+            if(label) label.textContent = window.CG_i18n ? (window.CG_i18n.t('nav.theme_dark') || 'Dark') : 'Dark';
         }
     }
     
@@ -1117,10 +1208,11 @@ class ClauseGuard {
         this.chatBody.scrollTop = this.chatBody.scrollHeight;
         
         try {
+            const currentLang = window.CG_i18n ? window.CG_i18n.getLang() : 'en';
             const res = await fetch(API.chat, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ doc_id: this.docId, question: text })
+                body: JSON.stringify({ doc_id: this.docId, question: text, lang: currentLang })
             });
             const data = await res.json();
             
@@ -1175,7 +1267,8 @@ class ClauseGuard {
         if (!historyContainer) return;
         
         if (this.history.length === 0) {
-            historyContainer.innerHTML = '<div class="sb-history-empty">No analyses yet</div>';
+            const emptyTxt = window.CG_i18n ? (window.CG_i18n.t('sidebar.history_empty') || 'No analyses yet') : 'No analyses yet';
+            historyContainer.innerHTML = `<div class="sb-history-empty" data-i18n="sidebar.history_empty">${emptyTxt}</div>`;
             return;
         }
         
@@ -1196,22 +1289,27 @@ class ClauseGuard {
             
             const title = docs.length > 1 ? `${primary.filename} +${docs.length - 1}` : primary.filename;
             const totalClauses = docs.reduce((sum, d) => sum + (d.total_clauses || 0), 0);
+            const clausesLabel = window.CG_i18n ? (window.CG_i18n.t('res.clauses') || 'clauses') : 'clauses';
+            const batchLabel = window.CG_i18n ? (window.CG_i18n.t('res.batch') || '(Batch)') : '(Batch)';
             
             hItem.innerHTML = `
                 <div class="h-dot ${dotClass}"></div>
                 <div class="h-info">
                     <span class="h-name">${title}</span>
-                    <span class="h-time">${totalClauses} clauses${docs.length > 1 ? ' (Batch)' : ''}</span>
+                    <span class="h-time">${totalClauses} ${clausesLabel}${docs.length > 1 ? ' ' + batchLabel : ''}</span>
                 </div>
                 <button class="h-delete-btn" title="Delete" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:#999;cursor:pointer;font-size:16px;line-height:1;padding:2px 5px;border-radius:3px;" aria-label="Delete history item">&times;</button>
             `;
             
-            // Delete button
-            hItem.querySelector('.h-delete-btn').addEventListener('click', (e) => {
+            // Delete button with custom theme-matched confirmation popup modal
+            hItem.querySelector('.h-delete-btn').addEventListener('click', async (e) => {
                 e.stopPropagation();
+                const confirmed = await this.requestDeleteConfirm();
+                if (!confirmed) return;
                 this.history.splice(index, 1);
                 localStorage.setItem('cg-history', JSON.stringify(this.history));
                 this.renderHistorySidebar();
+                this.toast('Chat history item deleted', 'info');
             });
 
             hItem.addEventListener('click', () => {

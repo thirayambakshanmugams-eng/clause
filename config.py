@@ -6,7 +6,10 @@ class Config:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
-    ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt'}
+    ALLOWED_EXTENSIONS = {
+        'pdf', 'docx', 'doc', 'rtf', 'odt', 'csv', 'txt',
+        'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'
+    }
     SECRET_KEY = os.environ.get('SECRET_KEY', 'clauseguard-secret-key-2024')
 
     @staticmethod

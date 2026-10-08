@@ -68,6 +68,21 @@ class RiskAnalyzer:
                     'unconditional indemnification obligation',
                     'indemnify from and against any and all liabilities',
                     'hold harmless from any claims',
+                    # Hindi
+                    'क्षतिपूर्ति और हानिरहित रखना',
+                    'नुकसान की भरपाई करना',
+                    'सभी दावों से मुक्त रखना',
+                    'पूर्ण क्षतिपूर्ति दायित्व',
+                    # Tamil
+                    'இழப்பீடு செய்து பாதுகாத்தல்',
+                    'முழு இழப்பீட்டு பொறுப்பு',
+                    'அனைத்து இழப்புகளுக்கும் பொறுப்பேற்க வேண்டும்',
+                    'பாதிப்பிலிருந்து விடுவிக்க வேண்டும்',
+                    # Telugu
+                    'నష్టపరిహారం చెల్లించాలి',
+                    'హాని లేకుండా కాపాడాలి',
+                    'పూర్తి నష్టపరిహార బాధ్యత',
+                    'అన్ని నష్టాలను భరించాలి',
                 ],
                 'Unlimited Liability': [
                     'unlimited liability',
@@ -78,6 +93,19 @@ class RiskAnalyzer:
                     'no cap on liability',
                     'liability shall not be limited',
                     'responsible for all losses without limit',
+                    # Hindi
+                    'असीमित दायित्व',
+                    'असीमित देयता',
+                    'बिना किसी सीमा के उत्तरदायी',
+                    'दायित्व पर कोई सीमा नहीं',
+                    # Tamil
+                    'வரம்பற்ற பொறுப்பு',
+                    'எல்லை இல்லாத பொறுப்பு',
+                    'பொறுப்பில் எந்த வரம்பும் இல்லை',
+                    # Telugu
+                    'అపరిమిత బాధ్యత',
+                    'పరిమితి లేని బాధ్యత',
+                    'ఎలాంటి పరిమితి లేకుండా బాధ్యత వహించాలి',
                 ],
                 'Auto Renewal': [
                     'automatically renew',
@@ -88,6 +116,19 @@ class RiskAnalyzer:
                     'automatically renewed for additional terms',
                     'renewal without notice required',
                     'deemed renewed unless written notice',
+                    # Hindi
+                    'स्वतः नवीनीकरण',
+                    'स्वचालित नवीकरण',
+                    'अपने आप नवीनीकृत',
+                    'बिना सूचना के नवीनीकरण',
+                    # Tamil
+                    'தானியங்கி புதுப்பித்தல்',
+                    'தானாகவே புதுப்பிக்கப்படும்',
+                    'முன்னறிவிப்பின்றி நீட்டிக்கப்படும்',
+                    # Telugu
+                    'స్వయంచాలక పునరుద్ధరణ',
+                    'ఆటో పునరుద్ధరణ',
+                    'నోటీసు లేకుండా పునరుద్ధరించబడుతుంది',
                 ],
                 'Non-Compete': [
                     'non-compete',
@@ -100,6 +141,18 @@ class RiskAnalyzer:
                     'non-compete obligation',
                     'prohibited from competing',
                     'competitive restriction',
+                    # Hindi
+                    'प्रतिस्पर्धा-रोधी',
+                    'प्रतिस्पर्धा न करने की शर्त',
+                    'गैर-प्रतिस्पर्धा दायित्व',
+                    # Tamil
+                    'போட்டியின்மை ஒப்பந்தம்',
+                    'வணிகப் போட்டி தடை',
+                    'போட்டியிடக் கூடாது',
+                    # Telugu
+                    'పోటీ లేని నిబంధన',
+                    'వ్యాపార పోటీ నిషేధం',
+                    'పోటీ చేయరాదు',
                 ],
                 'IP Assignment': [
                     'assigns all intellectual property',
@@ -112,6 +165,15 @@ class RiskAnalyzer:
                     'irrevocable assignment of all IP rights',
                     'all inventions shall be the property of',
                     'transfer all intellectual property rights',
+                    # Hindi
+                    'बौद्धिक संपदा का हस्तांतरण',
+                    'स्वामित्व का पूर्ण हस्तांतरण',
+                    # Tamil
+                    'அறிவுசார் சொத்துரிமை மாற்றம்',
+                    'முழு உரிமை மாற்றம்',
+                    # Telugu
+                    'మేధో సంపత్తి బదిలీ',
+                    'యాజమాన్య హక్కుల బదిలీ',
                 ],
                 'Unilateral Termination': [
                     'terminate at any time without cause',
@@ -122,6 +184,18 @@ class RiskAnalyzer:
                     'right to terminate without reason',
                     'unilateral right to cancel',
                     'terminate this agreement at will',
+                    # Hindi
+                    'एकतरफा समाप्ति',
+                    'बिना कारण अनुबंध रद्द',
+                    'तत्काल समाप्ति',
+                    # Tamil
+                    'ஒருதலைப்பட்ச ரத்து',
+                    'முன்னறிவிப்பின்றி ரத்து',
+                    'காரணமின்றி ஒப்பந்த முறிவு',
+                    # Telugu
+                    'ఏకపక్ష రద్దు',
+                    'కారణం లేకుండా రద్దు',
+                    'తక్షణ రద్దు',
                 ],
                 'Rights Waiver': [
                     'waive any and all claims',
@@ -343,9 +417,9 @@ class RiskAnalyzer:
 
         self._vectorizer = TfidfVectorizer(
             lowercase=True,
-            stop_words='english',
+            token_pattern=r'(?u)\b\w+\b',
             ngram_range=(1, 3),
-            max_features=5000,
+            max_features=8000,
             sublinear_tf=True,
         )
         self._pattern_vectors = self._vectorizer.fit_transform(all_texts)

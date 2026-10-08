@@ -15,6 +15,13 @@ from functools import wraps
 from config import Config
 import db
 
+# Load .env file automatically (so GROQ_API_KEY etc. work out of the box)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), '.env'), override=False)
+except ImportError:
+    pass  # python-dotenv not installed — fall back to system env vars only
+
 # Input length limits (prevent payload flooding / DoS)
 MAX_PROMPT_LEN    = 2000   # user_prompt field
 MAX_QUESTION_LEN  = 2000   # chat question
@@ -35,7 +42,7 @@ def login_required(f):
     """Decorator that redirects unauthenticated users to login page."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('user'):
+        if not session.get('user') and not session.get('user_id'):
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Authentication required.'}), 401
             return render_template('login.html', mode='login')
@@ -60,13 +67,32 @@ def create_app():
         r'http://127\.0\.0\.1:\d+',
     ]}}, supports_credentials=True)
 
-    # ── Background Pre-warming of ML / NLP engines ─────────────────
+    # ── Background Pre-warming of ML / NLP engines + AI keys ────────
     import threading
     def _prewarm_engines():
         try:
             get_parser()
             get_extractor()
             get_analyzer()
+        except Exception:
+            pass
+        # Auto-configure Groq + Gemini from env vars so Settings entry is optional
+        try:
+            from engine.llm_explainer import LLMExplainer
+            exp = _engine_cache.get('explainer') or LLMExplainer()
+            groq_env   = os.environ.get('GROQ_API_KEY', '').strip()
+            gemini_env = os.environ.get('GEMINI_API_KEY', '').strip()
+            if groq_env and groq_env != 'your_groq_key_here':
+                try:
+                    exp.configure_groq(groq_env)
+                except Exception:
+                    pass
+            if gemini_env:
+                try:
+                    exp.configure(gemini_env)
+                except Exception:
+                    pass
+            _engine_cache['explainer'] = exp
         except Exception:
             pass
     threading.Thread(target=_prewarm_engines, daemon=True).start()
@@ -94,6 +120,30 @@ def create_app():
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         return response
+
+    @app.errorhandler(404)
+    def handle_not_found(error):
+        if request.is_json or request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Not found'}), 404
+        if session.get('user_id') or session.get('user'):
+            return redirect(url_for('app_dashboard'))
+        return redirect(url_for('index'))
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(error, HTTPException):
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({'success': False, 'error': error.description}), error.code
+            return render_template('login.html', mode='login', error=error.description), error.code
+        app.logger.exception('Unhandled server error')
+        if request.is_json or request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again later.'}), 500
+        return render_template('login.html', mode='login', error='Internal server error. Please try again later.'), 500
+
+    @app.errorhandler(502)
+    def handle_bad_gateway(error):
+        return jsonify({'success': False, 'error': 'Bad gateway. The service is temporarily unavailable.'}), 502
 
     # ── Lazy-loaded engine singletons ───────────────────────────────
     _engine_cache = {}
@@ -153,23 +203,53 @@ def create_app():
 
     # ── Routes ──────────────────────────────────────────────────────
 
+    @app.route('/favicon.ico')
+    def favicon():
+        """Return empty favicon to suppress 404/500 errors."""
+        return '', 204
+
     @app.route('/')
     def index():
-        """Serve the main single-page application."""
+        """Serve the landing page (login.html has both landing + auth)."""
         if not session.get('user_id') and not session.get('user'):
             return render_template('login.html', mode='login')
         return render_template('index.html')
+
+    @app.route('/app')
+    @app.route('/dashboard')
+    def app_dashboard():
+        """Main ClauseGuard analysis dashboard."""
+        if not session.get('user_id') and not session.get('user'):
+            return redirect(url_for('login'))
+        return render_template('index.html')
+
+    @app.route('/landing')
+    def landing():
+        """Alias for root — redirect to / ."""
+        if session.get('user_id') or session.get('user'):
+            return redirect(url_for('app_dashboard'))
+        return render_template('login.html', mode='login')
+
+    @app.route('/3d')
+    def landing_3d():
+        """Interactive 3D WebGL landing page showcase."""
+        return render_template('landing_3d.html')
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """Multi-user login route — validates against SQLite database."""
         import time
         if request.method == 'POST':
-            username = request.form.get('username', '').strip()
-            password = request.form.get('password', '')
+            data = request.get_json(silent=True) or {}
+            username = (data.get('username') or request.form.get('username', '')).strip()
+            password = data.get('password') or request.form.get('password', '')
+            wants_json = request.is_json or 'application/json' in request.headers.get('Accept', '')
 
             if not username or not password:
-                return render_template('login.html', mode='login', error='Please provide both username/email and password.')
+                msg = 'Please provide both username/email and password.'
+                if wants_json:
+                    return jsonify({'success': False, 'error': msg}), 400
+                return render_template('signin.html', mode='login', error=msg)
 
             # ── Brute-force protection ──
             now = time.time()
@@ -179,8 +259,10 @@ def create_app():
 
             if now < locked_until:
                 remaining = int(locked_until - now)
-                return render_template('login.html', mode='login',
-                    error=f'Too many failed attempts. Try again in {remaining} seconds.')
+                msg = f'Too many failed attempts. Try again in {remaining} seconds.'
+                if wants_json:
+                    return jsonify({'success': False, 'error': msg}), 429
+                return render_template('signin.html', mode='login', error=msg)
 
             user = db.get_user_by_login(username)
 
@@ -193,7 +275,9 @@ def create_app():
                 session['email']   = user['email']
                 session.permanent  = True
                 app.permanent_session_lifetime = datetime.timedelta(hours=8)
-                return render_template('index.html')
+                if wants_json:
+                    return jsonify({'success': True, 'redirect': '/app'})
+                return redirect(url_for('app_dashboard'))
             else:
                 # Track failures
                 fails = session.get(fail_key, 0) + 1
@@ -201,25 +285,41 @@ def create_app():
                 if fails >= MAX_LOGIN_ATTEMPTS:
                     session[lock_key] = now + LOCKOUT_SECONDS
                     session[fail_key] = 0
-                    return render_template('login.html', mode='login',
-                        error=f'Account locked for 15 minutes after {MAX_LOGIN_ATTEMPTS} failed attempts.')
+                    msg = f'Account locked for 15 minutes after {MAX_LOGIN_ATTEMPTS} failed attempts.'
+                    if wants_json:
+                        return jsonify({'success': False, 'error': msg}), 403
+                    return render_template('signin.html', mode='login', error=msg)
                 remaining_tries = MAX_LOGIN_ATTEMPTS - fails
-                return render_template('login.html', mode='login',
-                    error=f'Invalid credentials. {remaining_tries} attempt(s) remaining.')
-        return render_template('login.html', mode='login')
+                msg = f'Invalid credentials. {remaining_tries} attempt(s) remaining.'
+                if wants_json:
+                    return jsonify({'success': False, 'error': msg}), 401
+                return render_template('signin.html', mode='login', error=msg)
+        # GET request — pick up ?mode=register from landing page links
+        if session.get('user_id') or session.get('user'):
+            return redirect(url_for('app_dashboard'))
+        mode = request.args.get('mode', 'login')
+        return render_template('signin.html', mode=mode)
 
     @app.route('/register', methods=['POST'])
     def register():
         """User registration route — creates new user in SQLite database."""
-        username = request.form.get('username', '').strip()
-        email    = request.form.get('email', '').strip()
-        password = request.form.get('password', '')
+        data = request.get_json(silent=True) or {}
+        username = (data.get('username') or request.form.get('username', '')).strip()
+        email    = (data.get('email') or request.form.get('email', '')).strip()
+        password = data.get('password') or request.form.get('password', '')
+        wants_json = request.is_json or 'application/json' in request.headers.get('Accept', '')
 
         if not username or not email or not password:
-            return render_template('login.html', mode='register', error='All fields are required.')
+            msg = 'All fields are required.'
+            if wants_json:
+                return jsonify({'success': False, 'error': msg}), 400
+            return render_template('signin.html', mode='register', error=msg)
 
         if len(password) < 6:
-            return render_template('login.html', mode='register', error='Password must be at least 6 characters long.')
+            msg = 'Password must be at least 6 characters long.'
+            if wants_json:
+                return jsonify({'success': False, 'error': msg}), 400
+            return render_template('signin.html', mode='register', error=msg)
 
         # Hash password securely
         password_hash = generate_password_hash(password)
@@ -232,235 +332,255 @@ def create_app():
             session['email']   = res['email']
             session.permanent  = True
             app.permanent_session_lifetime = datetime.timedelta(hours=8)
-            return render_template('index.html')
+            if wants_json:
+                return jsonify({'success': True, 'redirect': '/app'})
+            return redirect(url_for('app_dashboard'))
         else:
-            return render_template('login.html', mode='register', error=res)
+            if wants_json:
+                return jsonify({'success': False, 'error': str(res)}), 400
+            return render_template('signin.html', mode='register', error=res)
 
     @app.route('/logout')
     def logout():
         """Log out the user and clear the session."""
         session.clear()
-        return render_template('login.html', mode='login')
+        return redirect(url_for('index'))
 
     @app.route('/api/upload', methods=['POST'])
     @login_required
     def upload_document():
-        # ── Per-route rate limit: max 10 uploads per minute per IP ──
-        if limiter:
-            from flask_limiter.errors import RateLimitExceeded
-            try:
-                limiter.check()  # already applied by default
-            except Exception:
-                pass
-        # Hard enforce: use a per-session counter stored in session
-        import time
-        now = time.time()
-        window_key = 'upload_window'
-        count_key = 'upload_count'
-        window_start = session.get(window_key, 0)
-        upload_count = session.get(count_key, 0)
-
-        # Reset counter if more than 60 seconds have passed
-        if now - window_start > 60:
-            session[window_key] = now
-            session[count_key] = 1
-        else:
-            upload_count += 1
-            session[count_key] = upload_count
-            if upload_count > 10:
-                return jsonify({
-                    'success': False,
-                    'error': 'Rate limit exceeded: max 10 uploads per minute. Please wait before uploading again.'
-                }), 429
-        """
-        Upload and analyze one or more documents.
-        Accepts multipart/form-data with one or more 'document' file fields.
-        Returns per-document analysis results in a 'documents' array.
-        """
-        if 'document' not in request.files:
-            return jsonify({'success': False, 'error': 'No document uploaded.'}), 400
-
-        files = request.files.getlist('document')
-        if not files or all(f.filename == '' for f in files):
-            return jsonify({'success': False, 'error': 'No file selected.'}), 400
-
-        user_prompt = request.form.get('user_prompt', '')[:MAX_PROMPT_LEN]  # cap length
-
-        extractor         = get_extractor()
-        analyzer          = get_analyzer()
-        playbook_analyzer = get_playbook_analyzer()
-        obligation_extractor = get_obligation_extractor()
-        parser            = get_parser()
-
-        all_results = []
-
-        for file in files:
-            if file.filename == '':
-                continue
-
-            if not allowed_file(file.filename):
-                return jsonify({'success': False, 'error': f'Unsupported file type: {file.filename}'}), 400
-
-            filename  = secure_filename(file.filename)
-            file_path = os.path.join(Config.UPLOAD_FOLDER, f"{uuid.uuid4().hex}_{filename}")
-            unique_name = f"{uuid.uuid4().hex}_{filename}"
-
-            try:
-                file.save(file_path)
-
-                # Step 1: Parse
-                doc_data = parser.parse(file_path)
-                if not doc_data['text'].strip():
-                    all_results.append({'success': False, 'filename': filename, 'error': 'Could not extract text. File may be empty or image-based.'})
-                    continue
-
-                text = doc_data['text']
-
-                # Step 2: Extract clauses
-                clauses = extractor.extract(text)
-                if not clauses:
-                    all_results.append({'success': False, 'filename': filename, 'error': 'No analyzable clauses found.'})
-                    continue
-
-                # Step 3: Analyze risk
-                analyzed_clauses = []
-                summary = {'high_risk': 0, 'medium_risk': 0, 'low_risk': 0}
-                for clause in clauses:
-                    risk_result  = analyzer.analyze(clause['text'])
-                    clause_result = {
-                        'id':               clause['id'],
-                        'text':             clause['text'],
-                        'section_header':   clause.get('section_header', ''),
-                        'entities':         clause.get('entities', []),
-                        'sentence_count':   clause.get('sentence_count', 1),
-                        'risk_level':       risk_result['risk_level'],
-                        'risk_score':       risk_result['risk_score'],
-                        'risk_categories':  risk_result['risk_categories'],
-                        'keywords':         risk_result['keywords'],
-                    }
-                    analyzed_clauses.append(clause_result)
-                    level_key = f"{risk_result['risk_level']}_risk"
-                    summary[level_key] = summary.get(level_key, 0) + 1
-
-                high_count = summary['high_risk']
-                med_count  = summary['medium_risk']
-
-                # Step 4: Summary text
-                risk_explanations = {
-                    'Indemnification':      'means you must pay for the other party\'s legal costs and damages',
-                    'Unlimited Liability':  'means you could owe unlimited money if something goes wrong',
-                    'Auto Renewal':         'means the contract automatically continues and you might forget to cancel it',
-                    'Non-Compete':          'means you can\'t work in a similar business even after the contract ends',
-                    'IP Assignment':        'means your creative work or ideas become their property',
-                    'Unilateral Termination':'means only they can end the contract, leaving you at risk',
-                    'Rights Waiver':        'means you give up important legal protections',
-                    'Penalty Clauses':      'means you\'ll face large fines for minor violations',
-                    'Perpetual Terms':      'means certain obligations last forever after the contract ends',
-                    'Data Rights':          'means they control your personal or business data indefinitely',
-                }
-                if high_count > 0:
-                    high_cats = list(set([c['risk_categories'][0] for c in analyzed_clauses if c['risk_level'] == 'high' and c['risk_categories']]))
-                    cat_detail = ""
-                    cat_explanations = [f"<strong>{cat}</strong> — {risk_explanations[cat]}" for cat in high_cats[:3] if cat in risk_explanations]
-                    if cat_explanations:
-                        cat_detail = "<br><strong>Found in your document:</strong><ul style='margin:8px 0;padding-left:20px;'>" + "".join(f"<li style='margin:4px 0;'>{e}</li>" for e in cat_explanations) + "</ul>"
-                    doc_summary_text = (
-                        f"<span style='color:#d84c42;font-weight:600;'>ATTENTION: {high_count} High-Risk Clause(s) Found</span><br><br>"
-                        f"This document contains <strong>serious issues</strong> that could harm you financially or legally.{cat_detail}<br>"
-                        f"<strong>Action Required:</strong> Do NOT sign until you review and negotiate these clauses. Legal consultation is advised."
-                    )
-                    if med_count > 0:
-                        doc_summary_text += f"<br><br>Additionally, there are <strong>{med_count} medium-risk clause(s)</strong> that need attention."
-                elif med_count > 0:
-                    doc_summary_text = (
-                        f"This document is mostly standard, but we found <strong>{med_count} medium-risk clause(s)</strong>. "
-                        "Review these sections to ensure you are comfortable with the obligations before signing."
-                    )
-                else:
-                    doc_summary_text = (
-                        f"All {len(analyzed_clauses)} clauses analyzed. No high or medium risk patterns detected. "
-                        "The language appears standard and balanced. A final read-through is always recommended before signing."
-                    )
-
-                # Step 5: Playbook
-                playbook_violations = playbook_analyzer.analyze_document(analyzed_clauses, user_prompt=user_prompt)
-                for clause in analyzed_clauses:
-                    c_id_str = str(clause['id'])
-                    clause['playbook_violations'] = playbook_violations.get(c_id_str, playbook_violations.get(clause['id'], []))
-
-                # Step 6: Obligations
-                obligations = obligation_extractor.extract(text, user_prompt=user_prompt)
-
-                # Save for Q&A
-                TEMP_DOCS[unique_name] = text
-
-                timestamp_str = datetime.datetime.utcnow().isoformat() + 'Z'
-                doc_info_data = {'extension': doc_data.get('extension',''), 'word_count': doc_data['word_count'], 'char_count': doc_data['char_count']}
-                full_res_data = {
-                    'filename': filename,
-                    'doc_id': unique_name,
-                    'document_info': doc_info_data,
-                    'total_clauses': len(analyzed_clauses),
-                    'summary': summary,
-                    'document_summary_text': doc_summary_text,
-                    'clauses': analyzed_clauses,
-                    'obligations': obligations,
-                    'user_prompt': user_prompt,
-                }
-
-                # Save history into SQLite database for current user (safely handled)
+        try:
+            # ── Per-route rate limit: max 10 uploads per minute per IP ──
+            if limiter:
+                from flask_limiter.errors import RateLimitExceeded
                 try:
-                    user_id = session.get('user_id')
-                    if not user_id and session.get('user'):
-                        u = db.get_user_by_login(session.get('user'))
-                        if u:
-                            user_id = u['id']
-                            session['user_id'] = user_id
-                    if user_id:
-                        db.add_history_entry(user_id, unique_name, filename, timestamp_str, len(analyzed_clauses), summary, doc_info_data, full_res_data)
-                except Exception as hist_err:
-                    print(f"[Warning] Failed to save history entry: {hist_err}")
+                    limiter.check()  # already applied by default
+                except Exception:
+                    pass
+            # Hard enforce: use a per-session counter stored in session
+            import time
+            now = time.time()
+            window_key = 'upload_window'
+            count_key = 'upload_count'
+            window_start = session.get(window_key, 0)
+            upload_count = session.get(count_key, 0)
 
-                all_results.append({
-                    'success':               True,
-                    'filename':              filename,
-                    'doc_id':               unique_name,
-                    'document_info':         doc_info_data,
-                    'total_clauses':         len(analyzed_clauses),
-                    'summary':               summary,
-                    'document_summary_text': doc_summary_text,
-                    'clauses':               analyzed_clauses,
-                    'obligations':           obligations,
-                    'user_prompt':           user_prompt,
-                })
+            # Reset counter if more than 60 seconds have passed
+            if now - window_start > 60:
+                session[window_key] = now
+                session[count_key] = 1
+            else:
+                upload_count += 1
+                session[count_key] = upload_count
+                if upload_count > 10:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Rate limit exceeded: max 10 uploads per minute. Please wait before uploading again.'
+                    }), 429
 
-            except Exception as e:
-                all_results.append({'success': False, 'filename': filename, 'error': f'Analysis failed: {str(e)}'})
-            finally:
-                if os.path.exists(file_path):
+            """
+            Upload and analyze one or more documents.
+            Accepts multipart/form-data with one or more 'document' file fields.
+            Returns per-document analysis results in a 'documents' array.
+            """
+            if 'document' not in request.files:
+                return jsonify({'success': False, 'error': 'No document uploaded.'}), 400
+
+            files = request.files.getlist('document')
+            if not files or all(f.filename == '' for f in files):
+                return jsonify({'success': False, 'error': 'No file selected.'}), 400
+
+            user_prompt = request.form.get('user_prompt', '')[:MAX_PROMPT_LEN]  # cap length
+
+            extractor         = get_extractor()
+            analyzer          = get_analyzer()
+            playbook_analyzer = get_playbook_analyzer()
+            obligation_extractor = get_obligation_extractor()
+            parser            = get_parser()
+
+            all_results = []
+
+            for file in files:
+                if file.filename == '':
+                    continue
+
+                if not allowed_file(file.filename):
+                    return jsonify({'success': False, 'error': f'Unsupported file type: {file.filename}'}), 400
+
+                filename  = secure_filename(file.filename)
+                file_path = os.path.join(Config.UPLOAD_FOLDER, f"{uuid.uuid4().hex}_{filename}")
+                unique_name = f"{uuid.uuid4().hex}_{filename}"
+
+                try:
+                    file.save(file_path)
+
+                    # Step 1: Parse
+                    api_key = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
                     try:
-                        os.remove(file_path)
-                    except OSError:
-                        pass
+                        doc_data = parser.parse(file_path, api_key=api_key)
+                    except ValueError as parse_err:
+                        all_results.append({'success': False, 'filename': filename, 'error': str(parse_err)})
+                        continue
 
-        successful = [r for r in all_results if r.get('success')]
-        failed     = [r for r in all_results if not r.get('success')]
+                    if not doc_data['text'].strip():
+                        all_results.append({
+                            'success': False,
+                            'filename': filename,
+                            'error': 'Could not extract text. The document may be scanned, encrypted, or in a format that requires OCR. '
+                                     'Please use a text-based file or configure a Gemini API key for OCR.'
+                        })
+                        continue
 
-        if not successful:
-            errors = '; '.join(f"{r['filename']}: {r['error']}" for r in failed)
-            return jsonify({'success': False, 'error': errors}), 400
+                    text = doc_data['text']
 
-        # Single doc: return legacy flat format for UI compatibility
-        if len(successful) == 1 and len(files) == 1:
-            return jsonify(successful[0]), 200
+                    # Step 2: Extract clauses
+                    clauses = extractor.extract(text)
+                    if not clauses:
+                        all_results.append({'success': False, 'filename': filename, 'error': 'No analyzable clauses found.'})
+                        continue
 
-        # Multi-doc: return array under 'documents'
-        return jsonify({
-            'success':   True,
-            'multi':     True,
-            'documents': successful,
-            'failed':    failed,
-        }), 200
+                    # Step 3: Analyze risk
+                    analyzed_clauses = []
+                    summary = {'high_risk': 0, 'medium_risk': 0, 'low_risk': 0}
+                    for clause in clauses:
+                        risk_result  = analyzer.analyze(clause['text'])
+                        clause_result = {
+                            'id':               clause['id'],
+                            'text':             clause['text'],
+                            'section_header':   clause.get('section_header', ''),
+                            'entities':         clause.get('entities', []),
+                            'sentence_count':   clause.get('sentence_count', 1),
+                            'risk_level':       risk_result['risk_level'],
+                            'risk_score':       risk_result['risk_score'],
+                            'risk_categories':  risk_result['risk_categories'],
+                            'keywords':         risk_result['keywords'],
+                        }
+                        analyzed_clauses.append(clause_result)
+                        level_key = f"{risk_result['risk_level']}_risk"
+                        summary[level_key] = summary.get(level_key, 0) + 1
+
+                    high_count = summary['high_risk']
+                    med_count  = summary['medium_risk']
+
+                    # Step 4: Summary text
+                    risk_explanations = {
+                        'Indemnification':      'means you must pay for the other party\'s legal costs and damages',
+                        'Unlimited Liability':  'means you could owe unlimited money if something goes wrong',
+                        'Auto Renewal':         'means the contract automatically continues and you might forget to cancel it',
+                        'Non-Compete':          'means you can\'t work in a similar business even after the contract ends',
+                        'IP Assignment':        'means your creative work or ideas become their property',
+                        'Unilateral Termination':'means only they can end the contract, leaving you at risk',
+                        'Rights Waiver':        'means you give up important legal protections',
+                        'Penalty Clauses':      'means you\'ll face large fines for minor violations',
+                        'Perpetual Terms':      'means certain obligations last forever after the contract ends',
+                        'Data Rights':          'means they control your personal or business data indefinitely',
+                    }
+                    if high_count > 0:
+                        high_cats = list(set([c['risk_categories'][0] for c in analyzed_clauses if c['risk_level'] == 'high' and c['risk_categories']]))
+                        cat_detail = ""
+                        cat_explanations = [f"<strong>{cat}</strong> — {risk_explanations[cat]}" for cat in high_cats[:3] if cat in risk_explanations]
+                        if cat_explanations:
+                            cat_detail = "<br><strong>Found in your document:</strong><ul style='margin:8px 0;padding-left:20px;'>" + "".join(f"<li style='margin:4px 0;'>{e}</li>" for e in cat_explanations) + "</ul>"
+                        doc_summary_text = (
+                            f"<span style='color:#d84c42;font-weight:600;'>ATTENTION: {high_count} High-Risk Clause(s) Found</span><br><br>"
+                            f"This document contains <strong>serious issues</strong> that could harm you financially or legally.{cat_detail}<br>"
+                            f"<strong>Action Required:</strong> Do NOT sign until you review and negotiate these clauses. Legal consultation is advised."
+                        )
+                        if med_count > 0:
+                            doc_summary_text += f"<br><br>Additionally, there are <strong>{med_count} medium-risk clause(s)</strong> that need attention."
+                    elif med_count > 0:
+                        doc_summary_text = (
+                            f"This document is mostly standard, but we found <strong>{med_count} medium-risk clause(s)</strong>. "
+                            "Review these sections to ensure you are comfortable with the obligations before signing."
+                        )
+                    else:
+                        doc_summary_text = (
+                            f"All {len(analyzed_clauses)} clauses analyzed. No high or medium risk patterns detected. "
+                            "The language appears standard and balanced. A final read-through is always recommended before signing."
+                        )
+
+                    # Step 5: Playbook
+                    playbook_violations = playbook_analyzer.analyze_document(analyzed_clauses, user_prompt=user_prompt)
+                    for clause in analyzed_clauses:
+                        c_id_str = str(clause['id'])
+                        clause['playbook_violations'] = playbook_violations.get(c_id_str, playbook_violations.get(clause['id'], []))
+
+                    # Step 6: Obligations
+                    obligations = obligation_extractor.extract(text, user_prompt=user_prompt)
+
+                    # Save for Q&A
+                    TEMP_DOCS[unique_name] = text
+
+                    timestamp_str = datetime.datetime.utcnow().isoformat() + 'Z'
+                    doc_info_data = {'extension': doc_data.get('extension',''), 'word_count': doc_data['word_count'], 'char_count': doc_data['char_count']}
+                    full_res_data = {
+                        'filename': filename,
+                        'doc_id': unique_name,
+                        'document_info': doc_info_data,
+                        'total_clauses': len(analyzed_clauses),
+                        'summary': summary,
+                        'document_summary_text': doc_summary_text,
+                        'clauses': analyzed_clauses,
+                        'obligations': obligations,
+                        'user_prompt': user_prompt,
+                    }
+
+                    # Save history into SQLite database for current user (safely handled)
+                    try:
+                        user_id = session.get('user_id')
+                        if not user_id and session.get('user'):
+                            u = db.get_user_by_login(session.get('user'))
+                            if u:
+                                user_id = u['id']
+                                session['user_id'] = user_id
+                        if user_id:
+                            db.add_history_entry(user_id, unique_name, filename, timestamp_str, len(analyzed_clauses), summary, doc_info_data, full_res_data)
+                    except Exception as hist_err:
+                        print(f"[Warning] Failed to save history entry: {hist_err}")
+
+                    all_results.append({
+                        'success':               True,
+                        'filename':              filename,
+                        'doc_id':               unique_name,
+                        'document_info':         doc_info_data,
+                        'total_clauses':         len(analyzed_clauses),
+                        'summary':               summary,
+                        'document_summary_text': doc_summary_text,
+                        'clauses':               analyzed_clauses,
+                        'obligations':           obligations,
+                        'user_prompt':           user_prompt,
+                    })
+
+                except Exception as e:
+                    all_results.append({'success': False, 'filename': filename, 'error': f'Analysis failed: {str(e)}'})
+                finally:
+                    if os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                        except OSError:
+                            pass
+
+            successful = [r for r in all_results if r.get('success')]
+            failed     = [r for r in all_results if not r.get('success')]
+
+            if not successful:
+                errors = '; '.join(f"{r['filename']}: {r['error']}" for r in failed)
+                return jsonify({'success': False, 'error': errors}), 400
+
+            # Single doc: return legacy flat format for UI compatibility
+            if len(successful) == 1 and len(files) == 1:
+                return jsonify(successful[0]), 200
+
+            # Multi-doc: return array under 'documents'
+            return jsonify({
+                'success':   True,
+                'multi':     True,
+                'documents': successful,
+                'failed':    failed,
+            }), 200
+        except Exception as upload_error:
+            app.logger.exception('Upload document error')
+            return jsonify({'success': False, 'error': 'Analysis service error. Please try again later.'}), 500
 
 
     @app.route('/api/history', methods=['GET', 'DELETE'])
@@ -469,21 +589,31 @@ def create_app():
         """Get or clear analysis history for current user."""
         user_id = session.get('user_id', 0)
         if request.method == 'DELETE':
+            # Get user's items to remove only their keys from TEMP_DOCS
+            user_items = db.get_user_history(user_id)
+            for item in user_items:
+                TEMP_DOCS.pop(item.get('id'), None)
+                TEMP_DOCS.pop(item.get('doc_id'), None)
             db.clear_user_history(user_id)
-            TEMP_DOCS.clear()
             return jsonify({'success': True})
         
         history = db.get_user_history(user_id)
         return jsonify({'success': True, 'history': history})
 
-    @app.route('/api/history/<item_id>', methods=['DELETE'])
+    @app.route('/api/history/<item_id>', methods=['GET', 'DELETE'])
     @login_required
-    def delete_history_item(item_id):
-        """Delete a single history entry for current user."""
+    def handle_history_item(item_id):
+        """Get or delete a single history entry for current user."""
         user_id = session.get('user_id', 0)
-        db.delete_user_history_item(user_id, item_id)
-        TEMP_DOCS.pop(item_id, None)
-        return jsonify({'success': True})
+        if request.method == 'DELETE':
+            db.delete_user_history_item(user_id, item_id)
+            TEMP_DOCS.pop(item_id, None)
+            return jsonify({'success': True})
+        
+        item = db.get_user_history_item(user_id, item_id)
+        if not item:
+            return jsonify({'success': False, 'error': 'Document analysis not found.'}), 404
+        return jsonify({'success': True, 'item': item})
 
     @app.route('/api/explain', methods=['POST'])
     @login_required
@@ -499,22 +629,34 @@ def create_app():
         clause_text = data['clause_text'][:MAX_CLAUSE_LEN]
         risk_level = data.get('risk_level', 'medium')
         risk_categories = data.get('risk_categories', [])
+        lang = data.get('lang', 'en')
 
         try:
             explainer = get_explainer()
 
-            # Priority: session key > env var key
-            current_key = (
+            # ── Inject Groq key (primary — for plain-English/vernacular explain) ──
+            groq_key = (
+                session.get('groq_api_key')
+                or os.environ.get('GROQ_API_KEY', '')
+            )
+            if groq_key and groq_key != explainer.groq_api_key:
+                try:
+                    explainer.configure_groq(groq_key)
+                except Exception:
+                    pass
+
+            # ── Inject Gemini key (fallback) ──────────────────────────
+            gemini_key = (
                 session.get('gemini_api_key')
                 or os.environ.get('GEMINI_API_KEY', '')
             )
-            if current_key and current_key != explainer.api_key:
+            if gemini_key and gemini_key != explainer.api_key:
                 try:
-                    explainer.configure(current_key)
+                    explainer.configure(gemini_key)
                 except Exception:
-                    pass  # fallback will be used if configure fails
+                    pass
 
-            result = explainer.explain(clause_text, risk_level, risk_categories)
+            result = explainer.explain(clause_text, risk_level, risk_categories, lang=lang)
             result['success'] = True
             return jsonify(result)
 
@@ -522,7 +664,7 @@ def create_app():
             # Always return a fallback — never a raw 500
             from engine.llm_explainer import LLMExplainer
             fallback = LLMExplainer()
-            result = fallback.explain(clause_text, risk_level, risk_categories)
+            result = fallback.explain(clause_text, risk_level, risk_categories, lang=lang)
             result['success'] = True
             return jsonify(result)
 
@@ -540,21 +682,44 @@ def create_app():
         doc_id = data['doc_id']
         question = data['question'][:MAX_QUESTION_LEN]
         user_prompt = data.get('user_prompt', '')[:MAX_PROMPT_LEN]
+        lang = data.get('lang', 'en')
+        user_id = session.get('user_id', 0)
 
-        if doc_id not in TEMP_DOCS:
+        # Restore from database if not in memory
+        document_text = TEMP_DOCS.get(doc_id)
+        if not document_text and user_id:
+            item = db.get_user_history_item(user_id, doc_id)
+            if item and item.get('analysis_data'):
+                clauses = item['analysis_data'].get('clauses', [])
+                document_text = "\n\n".join([c.get('text', '') for c in clauses if c.get('text')])
+                if document_text:
+                    TEMP_DOCS[doc_id] = document_text
+
+        if not document_text:
             return jsonify({'success': False, 'error': 'Document session expired. Please re-upload the document.'}), 404
 
         try:
             explainer = get_explainer()
 
-            # Priority: session key > env var key
-            current_key = (
+            # ── Groq key (primary for Q&A — fast, conversational) ──
+            groq_key = (
+                session.get('groq_api_key')
+                or os.environ.get('GROQ_API_KEY', '')
+            )
+            if groq_key and groq_key != explainer.groq_api_key:
+                try:
+                    explainer.configure_groq(groq_key)
+                except Exception:
+                    pass
+
+            # ── Gemini key (fallback for large docs) ────────────────
+            gemini_key = (
                 session.get('gemini_api_key')
                 or os.environ.get('GEMINI_API_KEY', '')
             )
-            if current_key and current_key != explainer.api_key:
+            if gemini_key and gemini_key != explainer.api_key:
                 try:
-                    explainer.configure(current_key)
+                    explainer.configure(gemini_key)
                 except Exception:
                     pass
 
@@ -566,10 +731,10 @@ def create_app():
             if not explainer.is_available():
                 return jsonify({
                     'success': False,
-                    'error': 'AI chat requires a Gemini API key. Please add it in API Settings.'
+                    'error': 'AI chat requires an API key. Add a free Groq key or Gemini key in Settings.'
                 }), 200
 
-            answer = explainer.answer_question(document_text, question)
+            answer = explainer.answer_question(document_text, question, lang=lang)
             return jsonify({'success': True, 'answer': answer})
 
         except Exception as e:
@@ -581,51 +746,61 @@ def create_app():
     @app.route('/api/settings', methods=['POST'])
     @login_required
     def save_settings():
-        """Save user settings (API key) to the session."""
+        """Save user API keys (Groq + Gemini) to the session."""
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'No settings provided.'}), 400
 
-        api_key = data.get('api_key', '').strip()
+        gemini_key = data.get('api_key', '').strip()
+        groq_key   = data.get('groq_api_key', '').strip()
 
-        if api_key:
-            session['gemini_api_key'] = api_key
+        from engine.llm_explainer import LLMExplainer
 
-            # Re-initialize the explainer with the new key
+        # ── Save / remove Groq key (explain feature) ────────────────────────
+        if groq_key:
+            session['groq_api_key'] = groq_key
+            explainer = _engine_cache.get('explainer') or LLMExplainer()
+            try:
+                explainer.configure_groq(groq_key)
+            except Exception:
+                pass
+            _engine_cache['explainer'] = explainer
+        else:
+            session.pop('groq_api_key', None)
             if 'explainer' in _engine_cache:
-                _engine_cache['explainer'].configure(api_key)
-            else:
-                from engine.llm_explainer import LLMExplainer
-                _engine_cache['explainer'] = LLMExplainer(api_key=api_key)
+                _engine_cache['explainer']._groq_client = None
+                _engine_cache['explainer'].groq_api_key = None
+
+        # ── Save / remove Gemini key (Q&A chat, OCR, playbook) ────────────
+        if gemini_key:
+            session['gemini_api_key'] = gemini_key
+            explainer = _engine_cache.get('explainer') or LLMExplainer()
+            try:
+                explainer.configure(gemini_key)
+            except Exception:
+                pass
+            _engine_cache['explainer'] = explainer
 
             if 'playbook_analyzer' in _engine_cache:
-                _engine_cache['playbook_analyzer'].configure(api_key)
-                
+                _engine_cache['playbook_analyzer'].configure(gemini_key)
             if 'obligation_extractor' in _engine_cache:
-                _engine_cache['obligation_extractor'].configure(api_key)
-
-            return jsonify({
-                'success': True,
-                'message': 'API key saved successfully.',
-                'llm_available': True,
-            })
+                _engine_cache['obligation_extractor'].configure(gemini_key)
         else:
             session.pop('gemini_api_key', None)
-            if 'explainer' in _engine_cache:
-                _engine_cache['explainer'] = None
-                del _engine_cache['explainer']
-            if 'playbook_analyzer' in _engine_cache:
-                _engine_cache['playbook_analyzer'] = None
-                del _engine_cache['playbook_analyzer']
-            if 'obligation_extractor' in _engine_cache:
-                _engine_cache['obligation_extractor'] = None
-                del _engine_cache['obligation_extractor']
+            for key in ('playbook_analyzer', 'obligation_extractor'):
+                if key in _engine_cache:
+                    del _engine_cache[key]
 
-            return jsonify({
-                'success': True,
-                'message': 'API key removed.',
-                'llm_available': False,
-            })
+        groq_active   = bool(session.get('groq_api_key'))
+        gemini_active = bool(session.get('gemini_api_key'))
+
+        return jsonify({
+            'success': True,
+            'message': 'Settings saved.',
+            'llm_available':    gemini_active or groq_active,
+            'groq_available':   groq_active,
+            'gemini_available': gemini_active,
+        })
 
     @app.route('/api/playbook', methods=['GET'])
     @login_required
@@ -638,14 +813,73 @@ def create_app():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 
+    @app.route('/api/evaluate', methods=['POST'])
+    @login_required
+    def evaluate_dataset():
+        """Evaluate risk classification on a labeled dataset."""
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided.'}), 400
+
+        examples = data.get('examples')
+        if not isinstance(examples, list) or not examples:
+            return jsonify({'success': False, 'error': 'Examples must be a non-empty list.'}), 400
+
+        valid_labels = {'low', 'medium', 'high'}
+        true_labels = []
+        pred_labels = []
+        problems = []
+
+        analyzer = get_analyzer()
+
+        for idx, item in enumerate(examples, start=1):
+            if not isinstance(item, dict):
+                problems.append({'index': idx, 'error': 'Example is not an object.'})
+                continue
+
+            text = item.get('text', '')
+            label = str(item.get('label', '')).strip().lower()
+
+            if not text:
+                problems.append({'index': idx, 'error': 'Missing text.'})
+                continue
+            if label not in valid_labels:
+                problems.append({'index': idx, 'error': f'Invalid label: {item.get("label")}'})
+                continue
+
+            prediction = analyzer.analyze(text)['risk_level']
+            true_labels.append(label)
+            pred_labels.append(prediction)
+
+        if not true_labels:
+            return jsonify({'success': False, 'error': 'No valid labeled examples were provided.', 'problems': problems}), 400
+
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+
+        metrics = {
+            'accuracy': float(accuracy_score(true_labels, pred_labels)),
+            'precision_weighted': float(precision_score(true_labels, pred_labels, average='weighted', zero_division=0)),
+            'recall_weighted': float(recall_score(true_labels, pred_labels, average='weighted', zero_division=0)),
+            'f1_weighted': float(f1_score(true_labels, pred_labels, average='weighted', zero_division=0)),
+            'classification_report': classification_report(true_labels, pred_labels, zero_division=0, digits=4),
+            'num_examples': len(true_labels),
+            'invalid_examples': len(problems),
+        }
+
+        return jsonify({'success': True, 'metrics': metrics, 'problems': problems}), 200
+
     @app.route('/api/health', methods=['GET'])
     def health_check():
         """Health check endpoint."""
+        groq_active = bool(session.get('groq_api_key') or (os.environ.get('GROQ_API_KEY', '').strip() and os.environ.get('GROQ_API_KEY', '').strip() != 'your_groq_key_here'))
+        gemini_active = bool(session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY', '').strip())
         return jsonify({
-            'status': 'healthy',
-            'app': 'ClauseGuard',
-            'version': '2.0.0',
-            'llm_available': bool(session.get('gemini_api_key')),
+            'status':           'healthy',
+            'app':              'ClauseGuard',
+            'version':          '2.0.0',
+            'llm_available':    groq_active or gemini_active,
+            'groq_available':   groq_active,
+            'gemini_available': gemini_active,
         })
 
     @app.route('/api/report', methods=['POST'])
@@ -801,7 +1035,7 @@ if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("   ClauseGuard -- AI-Powered Clause Risk Analyzer")
     print("=" * 60)
-    print("   Server running at: http://localhost:5000")
+    print("   Server running at: http://localhost:5001")
     print("   Press Ctrl+C to stop")
     print("=" * 60 + "\n")
-    app.run(debug=is_dev, host='0.0.0.0', port=5000)
+    app.run(debug=is_dev, host='127.0.0.1', port=5001)
