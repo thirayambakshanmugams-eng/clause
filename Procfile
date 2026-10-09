@@ -1,2 +1,2 @@
-web: gunicorn --workers 1 --threads 8 --timeout 55 --keep-alive 5 --graceful-timeout 30 --preload "app:create_app()"
+web: gunicorn --workers 2 --threads 4 --timeout 55 --graceful-timeout 30 "app:create_app()"
 
