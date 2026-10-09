@@ -453,27 +453,39 @@ class LLMExplainer:
         }
         target_name = lang_target_names.get(lang, 'simple everyday English')
 
-        response = self._groq_client.chat.completions.create(
-            model='groq/compound-mini',
-            messages=[
-                {
-                    'role': 'system',
-                    'content': (
-                        f'You translate legal contract jargon into {target_name}. '
-                        'RULES:\n'
-                        '1. Write CONCISELY: exactly 2 short sentences per field (3-4 lines maximum per field).\n'
-                        f'2. Translate legal jargon into everyday words in {target_name}.\n'
-                        '3. Do NOT use real-life examples, analogies, or hypothetical stories.\n'
-                        '4. State the direct legal obligations, risks, and negotiation steps clearly.\n'
-                        'Respond ONLY with valid JSON — no markdown fences.'
-                    ),
-                },
-                {'role': 'user', 'content': prompt},
-            ],
-            temperature=0.2,
-            max_tokens=500,
-            response_format={'type': 'json_object'},
-        )
+        models_to_try = ['qwen/qwen3.8-27b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768']
+        response = None
+        last_err = None
+        for m in models_to_try:
+            try:
+                response = self._groq_client.chat.completions.create(
+                    model=m,
+                    messages=[
+                        {
+                            'role': 'system',
+                            'content': (
+                                f'You translate legal contract jargon into {target_name}. '
+                                'RULES:\n'
+                                '1. Write CONCISELY: exactly 2 short sentences per field (3-4 lines maximum per field).\n'
+                                f'2. Translate legal jargon into everyday words in {target_name}.\n'
+                                '3. Do NOT use real-life examples, analogies, or hypothetical stories.\n'
+                                '4. State the direct legal obligations, risks, and negotiation steps clearly.\n'
+                                'Respond ONLY with valid JSON — no markdown fences.'
+                            ),
+                        },
+                        {'role': 'user', 'content': prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=500,
+                    response_format={'type': 'json_object'},
+                )
+                break
+            except Exception as e:
+                last_err = e
+                continue
+
+        if response is None:
+            raise RuntimeError(f"All Groq models failed: {last_err}")
         text = response.choices[0].message.content.strip()
         text = self._extract_json_payload(text)
         result = json.loads(text)
@@ -812,28 +824,33 @@ Respond ONLY with the JSON."""
         if self._groq_client is not None and len(document_text) <= GROQ_CHAR_LIMIT:
             try:
                 doc_slice = document_text[:GROQ_CHAR_LIMIT]
-                response = self._groq_client.chat.completions.create(
-                    model='groq/compound-mini',
-                    messages=[
-                        {
-                            'role': 'system',
-                            'content': (
-                                f'You are a helpful legal document assistant answering in {target_lang}. '
-                                'Answer the user\'s question using ONLY the document provided. '
-                                'If the answer is not in the document, say so clearly. '
-                                f'Be concise, friendly, and use {target_lang}. '
-                                'Use bullet points when listing multiple items.'
-                            ),
-                        },
-                        {
-                            'role': 'user',
-                            'content': f'DOCUMENT:\n"""\n{doc_slice}\n"""\n\nQUESTION: {question}\n\nANSWER in {target_lang}:',
-                        },
-                    ],
-                    temperature=0.3,
-                    max_tokens=800,
-                )
-                return response.choices[0].message.content.strip()
+                models_to_try = ['qwen/qwen3.8-27b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+                for m in models_to_try:
+                    try:
+                        response = self._groq_client.chat.completions.create(
+                            model=m,
+                            messages=[
+                                {
+                                    'role': 'system',
+                                    'content': (
+                                        f'You are a helpful legal document assistant answering in {target_lang}. '
+                                        'Answer the user\'s question using ONLY the document provided. '
+                                        'If the answer is not in the document, say so clearly. '
+                                        f'Be concise, friendly, and use {target_lang}. '
+                                        'Use bullet points when listing multiple items.'
+                                    ),
+                                },
+                                {
+                                    'role': 'user',
+                                    'content': f'DOCUMENT:\n"""\n{doc_slice}\n"""\n\nQUESTION: {question}\n\nANSWER in {target_lang}:',
+                                },
+                            ],
+                            temperature=0.3,
+                            max_tokens=800,
+                        )
+                        return response.choices[0].message.content.strip()
+                    except Exception:
+                        continue
             except Exception:
                 pass  # fall through to Gemini
 
