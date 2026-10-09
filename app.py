@@ -10,7 +10,7 @@ import datetime
 import html
 import traceback
 import concurrent.futures
-from flask import Flask, request, jsonify, render_template, session, abort, redirect, url_for
+from flask import Flask, request, jsonify, render_template, session, abort, redirect, url_for, has_request_context
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -180,26 +180,34 @@ def create_app():
             _engine_cache['analyzer'] = RiskAnalyzer()
         return _engine_cache['analyzer']
 
-    def get_explainer():
+    def _get_session_api_key():
+        if has_request_context():
+            try:
+                return session.get('gemini_api_key')
+            except Exception:
+                pass
+        return None
+
+    def get_explainer(api_key=None):
         if 'explainer' not in _engine_cache:
             from engine.llm_explainer import LLMExplainer
-            api_key = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
-            _engine_cache['explainer'] = LLMExplainer(api_key=api_key)
+            key = api_key or _get_session_api_key() or os.environ.get('GEMINI_API_KEY')
+            _engine_cache['explainer'] = LLMExplainer(api_key=key)
         return _engine_cache['explainer']
 
-    def get_playbook_analyzer():
+    def get_playbook_analyzer(api_key=None):
         if 'playbook_analyzer' not in _engine_cache:
             from engine.playbook_analyzer import PlaybookAnalyzer
-            api_key = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
+            key = api_key or _get_session_api_key() or os.environ.get('GEMINI_API_KEY')
             playbook_path = os.path.join(Config.BASE_DIR, 'playbook.json')
-            _engine_cache['playbook_analyzer'] = PlaybookAnalyzer(playbook_path=playbook_path, api_key=api_key)
+            _engine_cache['playbook_analyzer'] = PlaybookAnalyzer(playbook_path=playbook_path, api_key=key)
         return _engine_cache['playbook_analyzer']
 
-    def get_obligation_extractor():
+    def get_obligation_extractor(api_key=None):
         if 'obligation_extractor' not in _engine_cache:
             from engine.obligation_extractor import ObligationExtractor
-            api_key = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
-            _engine_cache['obligation_extractor'] = ObligationExtractor(api_key=api_key)
+            key = api_key or _get_session_api_key() or os.environ.get('GEMINI_API_KEY')
+            _engine_cache['obligation_extractor'] = ObligationExtractor(api_key=key)
         return _engine_cache['obligation_extractor']
 
     def allowed_file(filename: str) -> bool:
@@ -609,26 +617,8 @@ def create_app():
 
                 return all_results
 
-            # ── Run analysis with a hard deadline (well under Render's 60s proxy limit) ──
-            try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(_run_analysis)
-                    all_results = future.result(timeout=_UPLOAD_DEADLINE_SECS)
-            except concurrent.futures.TimeoutError:
-                # Clean up any leftover temp files
-                for _, fp, _ in saved_files:
-                    try:
-                        if os.path.exists(fp):
-                            os.remove(fp)
-                    except OSError:
-                        pass
-                return jsonify({
-                    'success': False,
-                    'error': (
-                        'Analysis timed out — the document may be too large or complex. '
-                        'Try a smaller file (under 1 MB), a plain TXT/DOCX, or reduce the number of pages.'
-                    )
-                }), 503
+            # ── Execute analysis directly in request context ──
+            all_results = _run_analysis()
 
             successful = [r for r in all_results if r.get('success')]
             failed     = [r for r in all_results if not r.get('success')]
