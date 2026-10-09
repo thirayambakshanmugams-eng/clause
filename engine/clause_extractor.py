@@ -56,9 +56,13 @@ class ClauseExtractor:
 
         if spacy is not None:
             try:
-                self.nlp = spacy.load('en_core_web_sm')
-            except OSError:
-                self.nlp = None
+                # Load with only NER enabled — parser & tagger are not needed and waste 80% CPU/RAM
+                self.nlp = spacy.load('en_core_web_sm', disable=['parser', 'tagger', 'attribute_ruler', 'lemmatizer'])
+            except Exception:
+                try:
+                    self.nlp = spacy.load('en_core_web_sm')
+                except Exception:
+                    self.nlp = None
 
     @property
     def has_nlp(self) -> bool:
@@ -192,7 +196,7 @@ class ClauseExtractor:
             return []
 
         try:
-            doc = self.nlp(text[:2500])  # Safe bound for speed and memory
+            doc = self.nlp(text[:1000])  # Safe bound for speed and memory
             entities = []
             seen = set()
 

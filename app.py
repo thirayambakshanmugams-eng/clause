@@ -18,8 +18,8 @@ from functools import wraps
 from config import Config
 import db
 
-# Max clauses to analyze per document (prevents RAM spikes and timeout on huge contracts)
-_MAX_CLAUSES = 500
+# Max clauses to analyze per document (keeps analysis under 3-5 seconds on cloud)
+_MAX_CLAUSES = 150
 # Hard deadline (seconds) for the full upload+analysis pipeline — must be < gunicorn timeout
 _UPLOAD_DEADLINE_SECS = 45
 

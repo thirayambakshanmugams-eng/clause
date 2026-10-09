@@ -16,11 +16,10 @@ import shutil
 import concurrent.futures
 from typing import Dict, Callable, Optional
 
-# Max seconds for the entire PDF parse (including OCR fallback).
-# Render's proxy hard-cuts at 60s; keep comfortably under that.
-_PDF_PARSE_TIMEOUT_SECS = 40
-# Max PDF file size (bytes) for cloud deployment — 2 MB to stay within Render free-tier RAM
-_PDF_MAX_BYTES = 2 * 1024 * 1024
+# Max seconds for PDF parse (must be well under Render's proxy timeout)
+_PDF_PARSE_TIMEOUT_SECS = 15
+# Max PDF file size (bytes) for cloud deployment — 5 MB
+_PDF_MAX_BYTES = 5 * 1024 * 1024
 # Max pages to extract text from (avoids memory spikes on large PDFs)
 _PDF_MAX_PAGES = 20
 # Stop reading more pages once we have this much text (enough for clause analysis)
@@ -169,6 +168,12 @@ class DocumentParser:
             pass
 
         tesseract_path, poppler_bin_dir = DocumentParser._ensure_local_ocr_paths()
+        has_tesseract = bool(tesseract_path or shutil.which('tesseract'))
+        has_poppler = bool(poppler_bin_dir or shutil.which('pdfinfo') or shutil.which('pdftoppm'))
+        if not (has_tesseract and has_poppler):
+            # No local OCR engine installed (e.g. Render cloud) — fail fast in 0.001s
+            return '', False
+
         try:
             from pdf2image import convert_from_path
             import pytesseract
@@ -178,7 +183,8 @@ class DocumentParser:
             if tesseract_path:
                 pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
-            convert_kwargs = {'dpi': 300}
+            # Use 150 DPI instead of 300 to use 75% less RAM and prevent OOM
+            convert_kwargs = {'dpi': 150}
             if poppler_bin_dir:
                 convert_kwargs['poppler_path'] = poppler_bin_dir
 
