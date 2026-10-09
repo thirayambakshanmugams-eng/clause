@@ -18,11 +18,13 @@ from typing import Dict, Callable, Optional
 
 # Max seconds for the entire PDF parse (including OCR fallback).
 # Render's proxy hard-cuts at 60s; keep comfortably under that.
-_PDF_PARSE_TIMEOUT_SECS = 45
-# Max PDF file size (bytes) for cloud deployment — 5 MB
-_PDF_MAX_BYTES = 5 * 1024 * 1024
-# Max pages to extract text from (avoids memory spikes on very large PDFs)
-_PDF_MAX_PAGES = 50
+_PDF_PARSE_TIMEOUT_SECS = 40
+# Max PDF file size (bytes) for cloud deployment — 2 MB to stay within Render free-tier RAM
+_PDF_MAX_BYTES = 2 * 1024 * 1024
+# Max pages to extract text from (avoids memory spikes on large PDFs)
+_PDF_MAX_PAGES = 20
+# Stop reading more pages once we have this much text (enough for clause analysis)
+_PDF_TEXT_THRESHOLD = 50_000  # ~25,000 words
 
 from PyPDF2 import PdfReader
 from docx import Document
@@ -80,9 +82,12 @@ class DocumentParser:
             reader = PdfReader(file_path)
             pages = []
             for page in reader.pages[:_PDF_MAX_PAGES]:
-                page_text = page.extract_text()
-                if page_text and page_text.strip():
+                page_text = page.extract_text() or ''
+                if page_text.strip():
                     pages.append(page_text.strip())
+                # Early exit: we have enough text for analysis
+                if sum(len(p) for p in pages) >= _PDF_TEXT_THRESHOLD:
+                    break
             extracted = '\n\n'.join(pages)
         except Exception:
             extracted = ""
@@ -95,9 +100,11 @@ class DocumentParser:
             with pdfplumber.open(file_path) as pdf:
                 pages = []
                 for page in pdf.pages[:_PDF_MAX_PAGES]:
-                    page_text = page.extract_text()
-                    if page_text and page_text.strip():
+                    page_text = page.extract_text() or ''
+                    if page_text.strip():
                         pages.append(page_text.strip())
+                    if sum(len(p) for p in pages) >= _PDF_TEXT_THRESHOLD:
+                        break
                 extracted = '\n\n'.join(pages)
         except Exception:
             pass

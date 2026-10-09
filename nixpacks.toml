@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["poppler_utils", "tesseract"]
+
+[phases.install]
+cmds = [
+    "pip install -r requirements.txt",
+    "python -m spacy download en_core_web_sm"
+]
+
+[start]
+cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 'app:create_app()'"
