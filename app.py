@@ -19,7 +19,7 @@ from config import Config
 import db
 
 # Max clauses to analyze per document (prevents RAM spikes and timeout on huge contracts)
-_MAX_CLAUSES = 100
+_MAX_CLAUSES = 500
 # Hard deadline (seconds) for the full upload+analysis pipeline — must be < gunicorn timeout
 _UPLOAD_DEADLINE_SECS = 45
 
