@@ -5,8 +5,11 @@ Flask application entry point.
 
 import os
 import uuid
+import time
 import datetime
 import html
+import traceback
+import concurrent.futures
 from flask import Flask, request, jsonify, render_template, session, abort, redirect, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -14,6 +17,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from config import Config
 import db
+
+# Max clauses to analyze per document (prevents RAM spikes and timeout on huge contracts)
+_MAX_CLAUSES = 100
+# Hard deadline (seconds) for the full upload+analysis pipeline — must be < gunicorn timeout
+_UPLOAD_DEADLINE_SECS = 45
 
 # Load .env file automatically (so GROQ_API_KEY etc. work out of the box)
 try:
@@ -349,16 +357,21 @@ def create_app():
     @app.route('/api/upload', methods=['POST'])
     @login_required
     def upload_document():
+        """
+        Upload and analyze one or more documents.
+        Accepts multipart/form-data with one or more 'document' file fields.
+        Returns per-document analysis results in a 'documents' array.
+        The entire pipeline is wrapped in a hard deadline to prevent Render's
+        60s proxy from killing the request with a 502/504.
+        """
         try:
             # ── Per-route rate limit: max 10 uploads per minute per IP ──
             if limiter:
-                from flask_limiter.errors import RateLimitExceeded
                 try:
                     limiter.check()  # already applied by default
                 except Exception:
                     pass
             # Hard enforce: use a per-session counter stored in session
-            import time
             now = time.time()
             window_key = 'upload_window'
             count_key = 'upload_count'
@@ -378,11 +391,6 @@ def create_app():
                         'error': 'Rate limit exceeded: max 10 uploads per minute. Please wait before uploading again.'
                     }), 429
 
-            """
-            Upload and analyze one or more documents.
-            Accepts multipart/form-data with one or more 'document' file fields.
-            Returns per-document analysis results in a 'documents' array.
-            """
             if 'document' not in request.files:
                 return jsonify({'success': False, 'error': 'No document uploaded.'}), 400
 
@@ -392,182 +400,235 @@ def create_app():
 
             user_prompt = request.form.get('user_prompt', '')[:MAX_PROMPT_LEN]  # cap length
 
-            extractor         = get_extractor()
-            analyzer          = get_analyzer()
-            playbook_analyzer = get_playbook_analyzer()
-            obligation_extractor = get_obligation_extractor()
-            parser            = get_parser()
-
-            all_results = []
-
+            # Save all file bytes to disk before the deadline thread (files can't be read after request context)
+            saved_files = []
             for file in files:
                 if file.filename == '':
                     continue
-
                 if not allowed_file(file.filename):
                     return jsonify({'success': False, 'error': f'Unsupported file type: {file.filename}'}), 400
-
-                filename  = secure_filename(file.filename)
+                filename = secure_filename(file.filename)
                 file_path = os.path.join(Config.UPLOAD_FOLDER, f"{uuid.uuid4().hex}_{filename}")
                 unique_name = f"{uuid.uuid4().hex}_{filename}"
+                file.save(file_path)
+                saved_files.append((filename, file_path, unique_name))
 
-                try:
-                    file.save(file_path)
+            if not saved_files:
+                return jsonify({'success': False, 'error': 'No valid file selected.'}), 400
 
-                    # Step 1: Parse
-                    api_key = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
+            # ── Snapshot session values needed inside the deadline thread ──
+            api_key  = session.get('gemini_api_key') or os.environ.get('GEMINI_API_KEY')
+            user_id  = session.get('user_id')
+            if not user_id and session.get('user'):
+                u = db.get_user_by_login(session.get('user'))
+                if u:
+                    user_id = u['id']
+                    session['user_id'] = user_id
+
+            def _run_analysis():
+                """Inner function executed with a hard timeout to avoid Render 502s."""
+                extractor            = get_extractor()
+                analyzer             = get_analyzer()
+                playbook_analyzer    = get_playbook_analyzer()
+                obligation_extractor = get_obligation_extractor()
+                parser               = get_parser()
+
+                all_results = []
+
+                for filename, file_path, unique_name in saved_files:
                     try:
-                        doc_data = parser.parse(file_path, api_key=api_key)
-                    except Exception as parse_err:
-                        all_results.append({'success': False, 'filename': filename, 'error': str(parse_err)})
-                        continue
-
-                    if not doc_data['text'].strip():
-                        all_results.append({
-                            'success': False,
-                            'filename': filename,
-                            'error': 'Could not extract text. The document may be scanned, encrypted, or in a format that requires OCR. '
-                                     'Please use a text-based file or configure a Gemini API key for OCR.'
-                        })
-                        continue
-
-                    text = doc_data['text']
-
-                    # Step 2: Extract clauses
-                    clauses = extractor.extract(text)
-                    if not clauses:
-                        all_results.append({'success': False, 'filename': filename, 'error': 'No analyzable clauses found.'})
-                        continue
-
-                    # Step 3: Analyze risk
-                    analyzed_clauses = []
-                    summary = {'high_risk': 0, 'medium_risk': 0, 'low_risk': 0}
-                    for clause in clauses:
-                        risk_result  = analyzer.analyze(clause['text'])
-                        clause_result = {
-                            'id':               clause['id'],
-                            'text':             clause['text'],
-                            'section_header':   clause.get('section_header', ''),
-                            'entities':         clause.get('entities', []),
-                            'sentence_count':   clause.get('sentence_count', 1),
-                            'risk_level':       risk_result['risk_level'],
-                            'risk_score':       risk_result['risk_score'],
-                            'risk_categories':  risk_result['risk_categories'],
-                            'keywords':         risk_result['keywords'],
-                        }
-                        analyzed_clauses.append(clause_result)
-                        level_key = f"{risk_result['risk_level']}_risk"
-                        summary[level_key] = summary.get(level_key, 0) + 1
-
-                    high_count = summary['high_risk']
-                    med_count  = summary['medium_risk']
-
-                    # Step 4: Summary text
-                    risk_explanations = {
-                        'Indemnification':      'means you must pay for the other party\'s legal costs and damages',
-                        'Unlimited Liability':  'means you could owe unlimited money if something goes wrong',
-                        'Auto Renewal':         'means the contract automatically continues and you might forget to cancel it',
-                        'Non-Compete':          'means you can\'t work in a similar business even after the contract ends',
-                        'IP Assignment':        'means your creative work or ideas become their property',
-                        'Unilateral Termination':'means only they can end the contract, leaving you at risk',
-                        'Rights Waiver':        'means you give up important legal protections',
-                        'Penalty Clauses':      'means you\'ll face large fines for minor violations',
-                        'Perpetual Terms':      'means certain obligations last forever after the contract ends',
-                        'Data Rights':          'means they control your personal or business data indefinitely',
-                    }
-                    if high_count > 0:
-                        high_cats = list(set([c['risk_categories'][0] for c in analyzed_clauses if c['risk_level'] == 'high' and c['risk_categories']]))
-                        cat_detail = ""
-                        cat_explanations = [f"<strong>{cat}</strong> — {risk_explanations[cat]}" for cat in high_cats[:3] if cat in risk_explanations]
-                        if cat_explanations:
-                            cat_detail = "<br><strong>Found in your document:</strong><ul style='margin:8px 0;padding-left:20px;'>" + "".join(f"<li style='margin:4px 0;'>{e}</li>" for e in cat_explanations) + "</ul>"
-                        doc_summary_text = (
-                            f"<span style='color:#d84c42;font-weight:600;'>ATTENTION: {high_count} High-Risk Clause(s) Found</span><br><br>"
-                            f"This document contains <strong>serious issues</strong> that could harm you financially or legally.{cat_detail}<br>"
-                            f"<strong>Action Required:</strong> Do NOT sign until you review and negotiate these clauses. Legal consultation is advised."
-                        )
-                        if med_count > 0:
-                            doc_summary_text += f"<br><br>Additionally, there are <strong>{med_count} medium-risk clause(s)</strong> that need attention."
-                    elif med_count > 0:
-                        doc_summary_text = (
-                            f"This document is mostly standard, but we found <strong>{med_count} medium-risk clause(s)</strong>. "
-                            "Review these sections to ensure you are comfortable with the obligations before signing."
-                        )
-                    else:
-                        doc_summary_text = (
-                            f"All {len(analyzed_clauses)} clauses analyzed. No high or medium risk patterns detected. "
-                            "The language appears standard and balanced. A final read-through is always recommended before signing."
-                        )
-
-                    # Step 5: Playbook
-                    try:
-                        playbook_violations = playbook_analyzer.analyze_document(analyzed_clauses, user_prompt=user_prompt)
-                    except Exception as pb_err:
-                        app.logger.warning(f"Playbook analyzer skipped: {pb_err}")
-                        playbook_violations = {}
-
-                    for clause in analyzed_clauses:
-                        c_id_str = str(clause['id'])
-                        clause['playbook_violations'] = playbook_violations.get(c_id_str, playbook_violations.get(clause['id'], []))
-
-                    # Step 6: Obligations
-                    try:
-                        obligations = obligation_extractor.extract(text, user_prompt=user_prompt)
-                    except Exception as ob_err:
-                        app.logger.warning(f"Obligation extractor skipped: {ob_err}")
-                        obligations = []
-
-                    # Save for Q&A
-                    TEMP_DOCS[unique_name] = text
-
-                    timestamp_str = datetime.datetime.utcnow().isoformat() + 'Z'
-                    doc_info_data = {'extension': doc_data.get('extension',''), 'word_count': doc_data['word_count'], 'char_count': doc_data['char_count']}
-                    full_res_data = {
-                        'filename': filename,
-                        'doc_id': unique_name,
-                        'document_info': doc_info_data,
-                        'total_clauses': len(analyzed_clauses),
-                        'summary': summary,
-                        'document_summary_text': doc_summary_text,
-                        'clauses': analyzed_clauses,
-                        'obligations': obligations,
-                        'user_prompt': user_prompt,
-                    }
-
-                    # Save history into SQLite database for current user (safely handled)
-                    try:
-                        user_id = session.get('user_id')
-                        if not user_id and session.get('user'):
-                            u = db.get_user_by_login(session.get('user'))
-                            if u:
-                                user_id = u['id']
-                                session['user_id'] = user_id
-                        if user_id:
-                            db.add_history_entry(user_id, unique_name, filename, timestamp_str, len(analyzed_clauses), summary, doc_info_data, full_res_data)
-                    except Exception as hist_err:
-                        print(f"[Warning] Failed to save history entry: {hist_err}")
-
-                    all_results.append({
-                        'success':               True,
-                        'filename':              filename,
-                        'doc_id':               unique_name,
-                        'document_info':         doc_info_data,
-                        'total_clauses':         len(analyzed_clauses),
-                        'summary':               summary,
-                        'document_summary_text': doc_summary_text,
-                        'clauses':               analyzed_clauses,
-                        'obligations':           obligations,
-                        'user_prompt':           user_prompt,
-                    })
-
-                except Exception as e:
-                    all_results.append({'success': False, 'filename': filename, 'error': f'Analysis failed: {str(e)}'})
-                finally:
-                    if os.path.exists(file_path):
+                        # Step 1: Parse
                         try:
-                            os.remove(file_path)
-                        except OSError:
-                            pass
+                            doc_data = parser.parse(file_path, api_key=api_key)
+                        except Exception as parse_err:
+                            all_results.append({'success': False, 'filename': filename, 'error': str(parse_err)})
+                            continue
+
+                        if not doc_data['text'].strip():
+                            all_results.append({
+                                'success': False,
+                                'filename': filename,
+                                'error': (
+                                    'Could not extract text. The document may be scanned, encrypted, or '
+                                    'image-only. Please use a text-based file or configure a Gemini API key for OCR.'
+                                )
+                            })
+                            continue
+
+                        text = doc_data['text']
+
+                        # Step 2: Extract clauses (cap at _MAX_CLAUSES to prevent RAM spikes)
+                        clauses = extractor.extract(text)[:_MAX_CLAUSES]
+                        if not clauses:
+                            all_results.append({'success': False, 'filename': filename, 'error': 'No analyzable clauses found.'})
+                            continue
+
+                        # Step 3: Analyze risk
+                        analyzed_clauses = []
+                        summary = {'high_risk': 0, 'medium_risk': 0, 'low_risk': 0}
+                        for clause in clauses:
+                            risk_result = analyzer.analyze(clause['text'])
+                            clause_result = {
+                                'id':              clause['id'],
+                                'text':            clause['text'],
+                                'section_header':  clause.get('section_header', ''),
+                                'entities':        clause.get('entities', []),
+                                'sentence_count':  clause.get('sentence_count', 1),
+                                'risk_level':      risk_result['risk_level'],
+                                'risk_score':      risk_result['risk_score'],
+                                'risk_categories': risk_result['risk_categories'],
+                                'keywords':        risk_result['keywords'],
+                            }
+                            analyzed_clauses.append(clause_result)
+                            level_key = f"{risk_result['risk_level']}_risk"
+                            summary[level_key] = summary.get(level_key, 0) + 1
+
+                        high_count = summary['high_risk']
+                        med_count  = summary['medium_risk']
+
+                        # Step 4: Summary text
+                        risk_explanations = {
+                            'Indemnification':       'means you must pay for the other party\'s legal costs and damages',
+                            'Unlimited Liability':   'means you could owe unlimited money if something goes wrong',
+                            'Auto Renewal':          'means the contract automatically continues and you might forget to cancel it',
+                            'Non-Compete':           'means you can\'t work in a similar business even after the contract ends',
+                            'IP Assignment':         'means your creative work or ideas become their property',
+                            'Unilateral Termination':'means only they can end the contract, leaving you at risk',
+                            'Rights Waiver':         'means you give up important legal protections',
+                            'Penalty Clauses':       'means you\'ll face large fines for minor violations',
+                            'Perpetual Terms':       'means certain obligations last forever after the contract ends',
+                            'Data Rights':           'means they control your personal or business data indefinitely',
+                        }
+                        if high_count > 0:
+                            high_cats = list(set([
+                                c['risk_categories'][0]
+                                for c in analyzed_clauses
+                                if c['risk_level'] == 'high' and c['risk_categories']
+                            ]))
+                            cat_explanations = [
+                                f"<strong>{cat}</strong> — {risk_explanations[cat]}"
+                                for cat in high_cats[:3] if cat in risk_explanations
+                            ]
+                            cat_detail = ''
+                            if cat_explanations:
+                                cat_detail = (
+                                    "<br><strong>Found in your document:</strong>"
+                                    "<ul style='margin:8px 0;padding-left:20px;'>"
+                                    + "".join(f"<li style='margin:4px 0;'>{e}</li>" for e in cat_explanations)
+                                    + "</ul>"
+                                )
+                            doc_summary_text = (
+                                f"<span style='color:#d84c42;font-weight:600;'>ATTENTION: {high_count} High-Risk Clause(s) Found</span><br><br>"
+                                f"This document contains <strong>serious issues</strong> that could harm you financially or legally.{cat_detail}<br>"
+                                f"<strong>Action Required:</strong> Do NOT sign until you review and negotiate these clauses. Legal consultation is advised."
+                            )
+                            if med_count > 0:
+                                doc_summary_text += f"<br><br>Additionally, there are <strong>{med_count} medium-risk clause(s)</strong> that need attention."
+                        elif med_count > 0:
+                            doc_summary_text = (
+                                f"This document is mostly standard, but we found <strong>{med_count} medium-risk clause(s)</strong>. "
+                                "Review these sections to ensure you are comfortable with the obligations before signing."
+                            )
+                        else:
+                            doc_summary_text = (
+                                f"All {len(analyzed_clauses)} clauses analyzed. No high or medium risk patterns detected. "
+                                "The language appears standard and balanced. A final read-through is always recommended before signing."
+                            )
+
+                        # Step 5: Playbook
+                        try:
+                            playbook_violations = playbook_analyzer.analyze_document(analyzed_clauses, user_prompt=user_prompt)
+                        except Exception as pb_err:
+                            app.logger.warning(f"Playbook analyzer skipped: {pb_err}")
+                            playbook_violations = {}
+
+                        for clause in analyzed_clauses:
+                            c_id_str = str(clause['id'])
+                            clause['playbook_violations'] = playbook_violations.get(c_id_str, playbook_violations.get(clause['id'], []))
+
+                        # Step 6: Obligations
+                        try:
+                            obligations = obligation_extractor.extract(text, user_prompt=user_prompt)
+                        except Exception as ob_err:
+                            app.logger.warning(f"Obligation extractor skipped: {ob_err}")
+                            obligations = []
+
+                        # Save for Q&A
+                        TEMP_DOCS[unique_name] = text
+
+                        timestamp_str = datetime.datetime.utcnow().isoformat() + 'Z'
+                        doc_info_data = {
+                            'extension': doc_data.get('extension', ''),
+                            'word_count': doc_data['word_count'],
+                            'char_count': doc_data['char_count'],
+                        }
+                        full_res_data = {
+                            'filename':              filename,
+                            'doc_id':                unique_name,
+                            'document_info':         doc_info_data,
+                            'total_clauses':         len(analyzed_clauses),
+                            'summary':               summary,
+                            'document_summary_text': doc_summary_text,
+                            'clauses':               analyzed_clauses,
+                            'obligations':           obligations,
+                            'user_prompt':           user_prompt,
+                        }
+
+                        # Save history into SQLite database for current user
+                        try:
+                            if user_id:
+                                db.add_history_entry(
+                                    user_id, unique_name, filename, timestamp_str,
+                                    len(analyzed_clauses), summary, doc_info_data, full_res_data
+                                )
+                        except Exception as hist_err:
+                            app.logger.warning(f"Failed to save history entry: {hist_err}")
+
+                        all_results.append({
+                            'success':               True,
+                            'filename':              filename,
+                            'doc_id':                unique_name,
+                            'document_info':         doc_info_data,
+                            'total_clauses':         len(analyzed_clauses),
+                            'summary':               summary,
+                            'document_summary_text': doc_summary_text,
+                            'clauses':               analyzed_clauses,
+                            'obligations':           obligations,
+                            'user_prompt':           user_prompt,
+                        })
+
+                    except Exception as e:
+                        app.logger.error(f"Analysis failed for {filename}: {traceback.format_exc()}")
+                        all_results.append({'success': False, 'filename': filename, 'error': f'Analysis failed: {str(e)}'})
+                    finally:
+                        if os.path.exists(file_path):
+                            try:
+                                os.remove(file_path)
+                            except OSError:
+                                pass
+
+                return all_results
+
+            # ── Run analysis with a hard deadline (well under Render's 60s proxy limit) ──
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_run_analysis)
+                    all_results = future.result(timeout=_UPLOAD_DEADLINE_SECS)
+            except concurrent.futures.TimeoutError:
+                # Clean up any leftover temp files
+                for _, fp, _ in saved_files:
+                    try:
+                        if os.path.exists(fp):
+                            os.remove(fp)
+                    except OSError:
+                        pass
+                return jsonify({
+                    'success': False,
+                    'error': (
+                        'Analysis timed out — the document may be too large or complex. '
+                        'Try a smaller file (under 1 MB), a plain TXT/DOCX, or reduce the number of pages.'
+                    )
+                }), 503
 
             successful = [r for r in all_results if r.get('success')]
             failed     = [r for r in all_results if not r.get('success')]
@@ -577,7 +638,7 @@ def create_app():
                 return jsonify({'success': False, 'error': errors}), 400
 
             # Single doc: return legacy flat format for UI compatibility
-            if len(successful) == 1 and len(files) == 1:
+            if len(successful) == 1 and len(saved_files) == 1:
                 return jsonify(successful[0]), 200
 
             # Multi-doc: return array under 'documents'
@@ -587,8 +648,9 @@ def create_app():
                 'documents': successful,
                 'failed':    failed,
             }), 200
+
         except Exception as upload_error:
-            app.logger.exception('Upload document error')
+            app.logger.error(f"Upload document error: {traceback.format_exc()}")
             return jsonify({'success': False, 'error': f'Analysis error: {str(upload_error)}'}), 500
 
 
